@@ -693,10 +693,59 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .add-row button { border-color: var(--brass); color: var(--brass); }
   }
-  [data-theme="dark"] .add-row button { border-color: var(--brass); color: var(--brass); }
+  [data-theme="dark"] .add-row button { border-color: var(--brass); color: var(--brass); }  .login-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .login-gate .panel { width: 100%; max-width: 380px; }
+  .logout-link {
+    background: none;
+    border: none;
+    color: var(--brass-soft);
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.82rem;
+    padding: 0;
+  }
+  .sync-loading {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-soft);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.95rem;
+  }
 </style>
 </head>
 <body>
+
+<div class="login-gate" id="loginGate">
+  <section class="panel form-panel">
+    <h2>Barbería La Vieja</h2>
+    <p class="desc">Iniciá sesión para acceder.</p>
+    <div class="field">
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Contraseña</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button type="button" class="add-btn" id="loginBtn">Entrar</button>
+    <p class="footer-note" id="loginMsg"></p>
+  </section>
+</div>
+
+<div class="sync-loading" id="syncLoading" style="display:none;">Sincronizando datos…</div>
+
+<div id="appRoot" style="display:none;">
 
 <div class="topbar">
   <div class="brand">
@@ -708,6 +757,7 @@
   </div>
   <div class="topbar-right">
     <button class="settings-btn" id="settingsToggle">⚙ Editables</button>
+    <button class="logout-link" id="logoutBtn">Cerrar sesión</button>
   </div>
 </div>
 
@@ -1020,6 +1070,37 @@
 
 </main>
 
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, collection, onSnapshot
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyALZnRU48-lruW-MttMkA8YWJIxF_0_hro",
+    authDomain: "barberia-la-vieja.firebaseapp.com",
+    projectId: "barberia-la-vieja",
+    storageBucket: "barberia-la-vieja.firebasestorage.app",
+    messagingSenderId: "293057746212",
+    appId: "1:293057746212:web:353d89879ae4196be4cfb1"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  window.__fb = { auth, db, doc, getDoc, setDoc, collection, onSnapshot, signInWithEmailAndPassword, signOut };
+
+  onAuthStateChanged(auth, (user) => {
+    window.dispatchEvent(new CustomEvent('fb-auth-changed', { detail: { user } }));
+  });
+</script>
+
 <script>
 (function () {
   const DEFAULT_BARBEROS = ["Franco", "Maxi", "Ezequiel"];
@@ -1037,6 +1118,18 @@
   const DEFAULT_COMISION = 50;
 
   let payActive = { efectivo: false, mercadopago: false };
+
+  const loginGate = document.getElementById('loginGate');
+  const syncLoading = document.getElementById('syncLoading');
+  const appRoot = document.getElementById('appRoot');
+  const loginEmail = document.getElementById('loginEmail');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginMsg = document.getElementById('loginMsg');
+
+  let cloudUser = null;
+  let unsubShopDoc = null;
+  let unsubDias = null;
 
   const dateInput = document.getElementById('dateInput');
   const servicioSel = document.getElementById('servicio');
@@ -1119,45 +1212,68 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // ---- generic list storage helpers ----
-  function loadList(key, fallback) {
+  // ---- LOCAL (legacy) helpers — used only once, to migrate this device's
+  // existing localStorage data into the cloud the first time someone logs in ----
+  function loadLocalList(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       if (raw) return JSON.parse(raw);
     } catch (e) {}
     return fallback.slice();
   }
-  function saveList(key, list) {
-    try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {}
-  }
-
-  function loadBarberos() { return loadList(STORAGE_BARBEROS, DEFAULT_BARBEROS); }
-  function saveBarberos(l) { saveList(STORAGE_BARBEROS, l); }
-  function loadServicios() { return loadList(STORAGE_SERVICIOS, DEFAULT_SERVICIOS); }
-  function saveServicios(l) { saveList(STORAGE_SERVICIOS, l); }
-  function loadPrecios() { return loadList(STORAGE_PRECIOS, DEFAULT_PRECIOS); }
-  function savePrecios(l) { saveList(STORAGE_PRECIOS, l); }
-
-  function loadDay(dateStr) {
+  function loadLocalDay(dateStr) {
     try {
       const raw = localStorage.getItem(STORAGE_PREFIX + dateStr);
       if (raw) return JSON.parse(raw);
     } catch (e) {}
     return [];
   }
-  function saveDay(dateStr, entries) {
-    try { localStorage.setItem(STORAGE_PREFIX + dateStr, JSON.stringify(entries)); } catch (e) {}
-  }
-
-  function loadNumber(key, fallback) {
+  function loadLocalNumber(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       if (raw !== null && raw !== '') return Number(raw);
     } catch (e) {}
     return fallback;
   }
+
+  // ---- CLOUD data cache (kept in sync with Firestore in real time) ----
+  let cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null };
+  let diasCache = {};
+  const NUMBER_FIELD_MAP = {};
+  NUMBER_FIELD_MAP[STORAGE_GOAL_WEEK] = 'goalWeek';
+  NUMBER_FIELD_MAP[STORAGE_GOAL_MONTH] = 'goalMonth';
+  NUMBER_FIELD_MAP[STORAGE_COMISION] = 'comision';
+
+  function pushShopUpdate(partial) {
+    if (!cloudUser) return;
+    const ref = window.__fb.doc(window.__fb.db, 'shops', cloudUser.uid);
+    window.__fb.setDoc(ref, partial, { merge: true }).catch(err => console.error('Error guardando en la nube:', err));
+  }
+
+  function loadBarberos() { return cloud.barberos || []; }
+  function saveBarberos(l) { cloud.barberos = l; pushShopUpdate({ barberos: l }); }
+  function loadServicios() { return cloud.servicios || []; }
+  function saveServicios(l) { cloud.servicios = l; pushShopUpdate({ servicios: l }); }
+  function loadPrecios() { return cloud.precios || []; }
+  function savePrecios(l) { cloud.precios = l; pushShopUpdate({ precios: l }); }
+
+  function loadDay(dateStr) { return diasCache[dateStr] || []; }
+  function saveDay(dateStr, entries) {
+    diasCache[dateStr] = entries;
+    if (!cloudUser) return;
+    const ref = window.__fb.doc(window.__fb.db, 'shops', cloudUser.uid, 'dias', dateStr);
+    window.__fb.setDoc(ref, { entries }).catch(err => console.error('Error guardando en la nube:', err));
+  }
+
+  function loadNumber(key, fallback) {
+    const field = NUMBER_FIELD_MAP[key];
+    const v = cloud[field];
+    return (v === null || v === undefined) ? fallback : v;
+  }
   function saveNumber(key, val) {
-    try { localStorage.setItem(key, String(val)); } catch (e) {}
+    const field = NUMBER_FIELD_MAP[key];
+    cloud[field] = val;
+    pushShopUpdate({ [field]: val });
   }
 
   // ---- selects ----
@@ -1284,13 +1400,9 @@
   }
   settingsToggle.addEventListener('click', () => showView(currentView === 'settings' ? 'registro' : 'settings'));
 
-  // ---- jefe password lock ----
-  function loadPassword() {
-    try { return localStorage.getItem(STORAGE_PASSWORD); } catch (e) { return null; }
-  }
-  function savePasswordValue(pw) {
-    try { localStorage.setItem(STORAGE_PASSWORD, pw); } catch (e) {}
-  }
+  // ---- jefe password lock ("Editables" section password — separate from the account login) ----
+  function loadPassword() { return cloud.password || null; }
+  function savePasswordValue(pw) { cloud.password = pw; pushShopUpdate({ password: pw }); }
 
   function renderJefeLock() {
     jefePasswordInput.value = '';
@@ -1933,7 +2045,161 @@
     });
   });
   periodToggle.querySelector(`[data-period="${currentPeriod}"]`).classList.add('active');
-  window.addEventListener('resize', () => { if (jefeUnlocked && currentView === 'jefe') renderStats(); });
+  window.addEventListener('resize', () => { if (jefeUnlocked && currentView === 'settings') renderStats(); });
+
+  // ---- login / cloud sync ----
+  function showLoginGate() {
+    loginGate.style.display = 'flex';
+    syncLoading.style.display = 'none';
+    appRoot.style.display = 'none';
+  }
+  function showSyncing() {
+    loginGate.style.display = 'none';
+    syncLoading.style.display = 'flex';
+    appRoot.style.display = 'none';
+  }
+  function showApp() {
+    loginGate.style.display = 'none';
+    syncLoading.style.display = 'none';
+    appRoot.style.display = 'block';
+  }
+
+  function refreshAllUI() {
+    renderServicioSelect();
+    renderBarberoSelect();
+    renderQuickPrices();
+    if (currentView === 'settings') {
+      renderServicioManageList();
+      renderBarberoManageList();
+      renderPrecioManageList();
+      refreshPasswordSettingsUI();
+      if (jefeUnlocked) renderLog();
+    }
+  }
+
+  async function migrateLocalDataIfAny(shopRef) {
+    const seed = {
+      barberos: loadLocalList(STORAGE_BARBEROS, DEFAULT_BARBEROS),
+      servicios: loadLocalList(STORAGE_SERVICIOS, DEFAULT_SERVICIOS),
+      precios: loadLocalList(STORAGE_PRECIOS, DEFAULT_PRECIOS),
+      comision: loadLocalNumber(STORAGE_COMISION, DEFAULT_COMISION),
+      goalWeek: loadLocalNumber(STORAGE_GOAL_WEEK, 0),
+      goalMonth: loadLocalNumber(STORAGE_GOAL_MONTH, 0),
+      password: null
+    };
+    try {
+      const rawPw = localStorage.getItem(STORAGE_PASSWORD);
+      if (rawPw) seed.password = rawPw;
+    } catch (e) {}
+    await window.__fb.setDoc(shopRef, seed);
+
+    // migrate any day entries already stored on this device
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.indexOf(STORAGE_PREFIX) === 0) {
+          const dateStr = key.slice(STORAGE_PREFIX.length);
+          const entries = loadLocalDay(dateStr);
+          if (entries && entries.length) {
+            const dayRef = window.__fb.doc(window.__fb.db, 'shops', cloudUser.uid, 'dias', dateStr);
+            await window.__fb.setDoc(dayRef, { entries });
+          }
+        }
+      }
+    } catch (e) { console.error('Error migrando cortes existentes:', e); }
+  }
+
+  async function initCloudSync() {
+    showSyncing();
+    const uid = cloudUser.uid;
+    const shopRef = window.__fb.doc(window.__fb.db, 'shops', uid);
+
+    try {
+      const snap = await window.__fb.getDoc(shopRef);
+      if (!snap.exists()) {
+        await migrateLocalDataIfAny(shopRef);
+      }
+    } catch (e) {
+      console.error('Error inicializando datos en la nube:', e);
+    }
+
+    if (unsubShopDoc) unsubShopDoc();
+    if (unsubDias) unsubDias();
+
+    let shopLoaded = false, diasLoaded = false;
+    function maybeShowApp() {
+      if (shopLoaded && diasLoaded) showApp();
+    }
+
+    unsubShopDoc = window.__fb.onSnapshot(shopRef, (snap) => {
+      const d = snap.data() || {};
+      cloud.barberos = d.barberos || [];
+      cloud.servicios = d.servicios || [];
+      cloud.precios = d.precios || [];
+      cloud.comision = (d.comision === undefined || d.comision === null) ? DEFAULT_COMISION : d.comision;
+      cloud.goalWeek = d.goalWeek || 0;
+      cloud.goalMonth = d.goalMonth || 0;
+      cloud.password = d.password || null;
+      shopLoaded = true;
+      refreshAllUI();
+      maybeShowApp();
+    }, (err) => console.error('Error escuchando datos del local:', err));
+
+    const diasCol = window.__fb.collection(window.__fb.db, 'shops', uid, 'dias');
+    unsubDias = window.__fb.onSnapshot(diasCol, (snapshot) => {
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'removed') {
+          delete diasCache[change.doc.id];
+        } else {
+          diasCache[change.doc.id] = (change.doc.data().entries) || [];
+        }
+      });
+      diasLoaded = true;
+      refreshAllUI();
+      maybeShowApp();
+    }, (err) => console.error('Error escuchando cortes:', err));
+  }
+
+  window.addEventListener('fb-auth-changed', (e) => {
+    const user = e.detail.user;
+    if (user) {
+      cloudUser = user;
+      initCloudSync();
+    } else {
+      cloudUser = null;
+      if (unsubShopDoc) { unsubShopDoc(); unsubShopDoc = null; }
+      if (unsubDias) { unsubDias(); unsubDias = null; }
+      cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null };
+      diasCache = {};
+      jefeUnlocked = false;
+      showView('registro');
+      showLoginGate();
+    }
+  });
+
+  loginBtn.addEventListener('click', async () => {
+    const email = loginEmail.value.trim();
+    const pw = loginPassword.value;
+    if (!email || !pw) {
+      loginMsg.textContent = 'Completá el email y la contraseña.';
+      return;
+    }
+    loginMsg.textContent = '';
+    loginBtn.disabled = true;
+    try {
+      await window.__fb.signInWithEmailAndPassword(window.__fb.auth, email, pw);
+    } catch (err) {
+      loginMsg.textContent = 'No se pudo iniciar sesión. Revisá el email y la contraseña.';
+    }
+    loginBtn.disabled = false;
+  });
+  [loginEmail, loginPassword].forEach(inp => {
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginBtn.click(); });
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    window.__fb.signOut(window.__fb.auth).catch(err => console.error('Error cerrando sesión:', err));
+  });
 
   // init
   dateInput.value = todayStr();
