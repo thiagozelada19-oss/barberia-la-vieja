@@ -1199,9 +1199,17 @@
   let jefeUnlocked = false;
   let pagosWeekSunday = null;
 
+  // Fecha en HORA LOCAL del dispositivo (YYYY-MM-DD).
+  // No usar toISOString(): devuelve UTC y en Argentina (UTC-3) pasa al día
+  // siguiente a partir de las 21:00.
+  function dateStrFromDate(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
   function todayStr() {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
+    return dateStrFromDate(new Date());
   }
 
   function fmtMoney(n) {
@@ -1645,9 +1653,9 @@
   }
 
   function shiftDate(days) {
-    const d = new Date(dateInput.value || todayStr());
+    const d = new Date((dateInput.value || todayStr()) + 'T00:00:00');
     d.setDate(d.getDate() + days);
-    dateInput.value = d.toISOString().slice(0, 10);
+    dateInput.value = dateStrFromDate(d);
     renderLog();
   }
 
@@ -1757,7 +1765,6 @@
   const statsEmpty = document.getElementById('statsEmpty');
   const chartScroll = document.getElementById('chartScroll');
 
-  function dateStrFromDate(d) { return d.toISOString().slice(0, 10); }
 
   function lastNDays(n) {
     const out = [];
