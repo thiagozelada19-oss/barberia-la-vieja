@@ -619,6 +619,20 @@
     border-top: 1px solid var(--line);
     padding-top: 12px;
   }
+  .pagos-neto {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .pagos-neto-label { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+  .pagos-neto strong { font-size: 1.25rem; color: var(--ink); }
 
   /* Jefe (boss) panel */
   .jefe-view { display: none; }
@@ -941,7 +955,7 @@
         <div class="goals-grid">
           <div class="goal-card">
             <div class="goal-head">
-              <span class="goal-label">Objetivo semanal <span class="goal-sub">(domingo a domingo)</span></span>
+              <span class="goal-label">Objetivo semanal <span class="goal-sub">(domingo a domingo · lo que se queda la barbería)</span></span>
             </div>
             <div class="goal-set-row">
               <span>Meta $</span>
@@ -952,7 +966,7 @@
           </div>
           <div class="goal-card">
             <div class="goal-head">
-              <span class="goal-label">Objetivo mensual</span>
+              <span class="goal-label">Objetivo mensual <span class="goal-sub">(lo que se queda la barbería)</span></span>
             </div>
             <div class="goal-set-row">
               <span>Meta $</span>
@@ -999,6 +1013,10 @@
               </tr>
             </tfoot>
           </table>
+        </div>
+        <div class="pagos-neto">
+          <span class="pagos-neto-label">Se queda la barbería <span class="goal-sub">(después de pagar a los barberos)</span></span>
+          <strong id="pagosNeto">$0</strong>
         </div>
       </section>
 
@@ -1195,6 +1213,7 @@
   const pagosBody = document.getElementById('pagosBody');
   const pagosTotalGenerado = document.getElementById('pagosTotalGenerado');
   const pagosTotalPagar = document.getElementById('pagosTotalPagar');
+  const pagosNeto = document.getElementById('pagosNeto');
 
   let jefeUnlocked = false;
   let pagosWeekSunday = null;
@@ -1502,6 +1521,7 @@
     pagosBody.innerHTML = '';
     pagosTotalGenerado.textContent = '$0';
     pagosTotalPagar.textContent = '$0';
+    pagosNeto.textContent = '$0';
     pagosWeekLabel.textContent = '';
   }
 
@@ -1972,14 +1992,25 @@
       : `${fmtMoney(current)} — todavía no definiste una meta`;
   }
 
+  // Plata que se queda la barbería = total cobrado − lo que se le paga a cada barbero
+  // (misma cuenta que la tabla de "Pagos por barbero").
+  function netoBarberia(data, comision) {
+    let pagos = 0;
+    Object.keys(data.porBarbero).forEach(name => {
+      pagos += data.porBarbero[name].total * (comision / 100);
+    });
+    return data.total - pagos;
+  }
+
   function renderGoals() {
+    const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
     const weekData = sumForDates(weekDateStrs(sundayOf(new Date())));
     const monthData = sumForDates(currentMonthDateStrs());
     const goalWeek = loadNumber(STORAGE_GOAL_WEEK, 0);
     const goalMonth = loadNumber(STORAGE_GOAL_MONTH, 0);
 
-    updateGoalCard(goalWeekFill, goalWeekText, weekData.total, goalWeek);
-    updateGoalCard(goalMonthFill, goalMonthText, monthData.total, goalMonth);
+    updateGoalCard(goalWeekFill, goalWeekText, netoBarberia(weekData, comision), goalWeek);
+    updateGoalCard(goalMonthFill, goalMonthText, netoBarberia(monthData, comision), goalMonth);
 
     if (document.activeElement !== goalWeekInput) goalWeekInput.value = goalWeek || '';
     if (document.activeElement !== goalMonthInput) goalMonthInput.value = goalMonth || '';
@@ -2025,11 +2056,13 @@
     const totalPagar = rows.reduce((s, r) => s + r.pago, 0);
     pagosTotalGenerado.textContent = fmtMoney(totalGenerado);
     pagosTotalPagar.textContent = fmtMoney(totalPagar);
+    pagosNeto.textContent = fmtMoney(netoBarberia(data, comision));
   }
 
   comisionInput.addEventListener('change', () => {
     saveNumber(STORAGE_COMISION, Number(comisionInput.value || DEFAULT_COMISION));
     renderPagos();
+    renderGoals();
   });
   pagosPrevWeek.addEventListener('click', () => {
     pagosWeekSunday.setDate(pagosWeekSunday.getDate() - 7);
