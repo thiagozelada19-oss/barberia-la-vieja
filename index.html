@@ -528,6 +528,28 @@
     border-radius: 4px;
   }
 
+  /* Días de la semana */
+  .weekday-section {
+    margin-top: 26px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .weekday-section h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink);
+  }
+  .weekday-highlight {
+    margin: 14px 0 14px;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+  }
+  .weekday-highlight strong { color: var(--ink); }
+  .weekday-days { font-size: 0.75rem; opacity: 0.8; }
+  .ranking-bar-fill.top { background: var(--green); }
+
   /* Goals panel */
   .goals-grid {
     display: grid;
@@ -947,6 +969,20 @@
             <h3>Servicios más pedidos</h3>
             <div class="ranking-list" id="rankingServicios"></div>
           </div>
+        </div>
+
+        <div class="weekday-section">
+          <div class="stats-header">
+            <h3>Días de la semana</h3>
+            <div class="period-toggle" id="weekdayToggle">
+              <button type="button" data-wd="1m">1 mes</button>
+              <button type="button" data-wd="3m">3 meses</button>
+              <button type="button" data-wd="all">Todo</button>
+            </div>
+          </div>
+          <p class="weekday-highlight" id="weekdayHighlight"></p>
+          <div class="ranking-list" id="rankingWeekdays"></div>
+          <p class="footer-note">Promedio de cortes por día. Solo cuentan los días con cortes cargados (los días cerrados no bajan el promedio) y no se incluye el día de hoy hasta que termine.</p>
         </div>
       </section>
 
@@ -1512,6 +1548,8 @@
     chartScroll.innerHTML = '';
     document.getElementById('rankingBarberos').innerHTML = '';
     document.getElementById('rankingServicios').innerHTML = '';
+    document.getElementById('rankingWeekdays').innerHTML = '';
+    document.getElementById('weekdayHighlight').textContent = '';
     goalWeekFill.style.width = '0%';
     goalMonthFill.style.width = '0%';
     goalWeekText.textContent = '$0';
@@ -1931,7 +1969,91 @@
     });
     renderRankingList(document.getElementById('rankingBarberos'), porBarbero, 5);
     renderRankingList(document.getElementById('rankingServicios'), porServicio, 5);
+    renderWeekdays();
   }
+
+  // ---- días de la semana (promedio histórico) ----
+  const WEEKDAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // lunes a domingo
+  let currentWeekdayRange = 'all';
+  const weekdayToggle = document.getElementById('weekdayToggle');
+
+  function fmtAvg(n) {
+    return n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+  }
+
+  function weekdayStats(range) {
+    const today = todayStr();
+    let minDate = '';
+    if (range === '1m' || range === '3m') {
+      const back = new Date();
+      back.setDate(back.getDate() - (range === '1m' ? 30 : 90));
+      minDate = dateStrFromDate(back);
+    }
+    // por día de la semana: cantidad de días con cortes, cortes y plata acumulados
+    const acc = {};
+    WEEKDAY_ORDER.forEach(wd => { acc[wd] = { days: 0, cortes: 0, total: 0 }; });
+    Object.keys(diasCache).forEach(dateStr => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+      if (dateStr >= today) return;                 // el día de hoy todavía no terminó
+      if (minDate && dateStr < minDate) return;
+      const entries = diasCache[dateStr] || [];
+      if (entries.length === 0) return;             // día sin cortes = cerrado, no cuenta
+      const wd = new Date(dateStr + 'T00:00:00').getDay();
+      acc[wd].days += 1;
+      acc[wd].cortes += entries.length;
+      entries.forEach(e => { acc[wd].total += Number(e.efectivo || 0) + Number(e.mercadopago || 0); });
+    });
+    return WEEKDAY_ORDER.map(wd => ({
+      wd,
+      name: WEEKDAY_NAMES[wd],
+      days: acc[wd].days,
+      avgCortes: acc[wd].days ? acc[wd].cortes / acc[wd].days : 0,
+      avgTotal: acc[wd].days ? acc[wd].total / acc[wd].days : 0
+    }));
+  }
+
+  function renderWeekdays() {
+    const rows = weekdayStats(currentWeekdayRange);
+    const container = document.getElementById('rankingWeekdays');
+    const highlight = document.getElementById('weekdayHighlight');
+    const withData = rows.filter(r => r.days > 0);
+    if (withData.length === 0) {
+      highlight.textContent = '';
+      container.innerHTML = '<p class="footer-note">Todavía no hay días cargados para armar el promedio.</p>';
+      return;
+    }
+    const best = withData.reduce((a, b) => (b.avgCortes > a.avgCortes ? b : a));
+    highlight.innerHTML = `El día más movido es el <strong>${best.name}</strong>: ${fmtAvg(best.avgCortes)} cortes por día en promedio.`;
+    const max = best.avgCortes || 1;
+    container.innerHTML = rows.map(r => {
+      if (r.days === 0) {
+        return `
+      <div class="ranking-row">
+        <div class="ranking-top"><span class="name">${r.name}</span><span>Sin datos</span></div>
+        <div class="ranking-bar-track"><div class="ranking-bar-fill" style="width:0%;"></div></div>
+      </div>`;
+      }
+      const isTop = r.wd === best.wd;
+      return `
+      <div class="ranking-row">
+        <div class="ranking-top">
+          <span class="name">${r.name} <span class="weekday-days">(${r.days} ${r.days === 1 ? 'día' : 'días'})</span></span>
+          <span>${fmtAvg(r.avgCortes)} cortes · ${fmtMoney(Math.round(r.avgTotal))}</span>
+        </div>
+        <div class="ranking-bar-track"><div class="ranking-bar-fill${isTop ? ' top' : ''}" style="width:${Math.round((r.avgCortes / max) * 100)}%;"></div></div>
+      </div>`;
+    }).join('');
+  }
+
+  weekdayToggle.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentWeekdayRange = btn.dataset.wd;
+      weekdayToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      renderWeekdays();
+    });
+  });
+  weekdayToggle.querySelector(`[data-wd="${currentWeekdayRange}"]`).classList.add('active');
 
   // ---- objetivos & pagos (semana domingo a domingo) ----
   function fmtDateShort(d) {
