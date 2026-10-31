@@ -528,25 +528,43 @@
     border-radius: 4px;
   }
 
-  /* Días de la semana */
-  .weekday-section {
+  /* Sugerencias de clientes */
+  .cliente-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .cliente-suggest:empty { display: none; }
+  .cliente-chip {
+    padding: 7px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .cliente-chip small { color: var(--ink-soft); font-size: 0.78rem; }
+  .cliente-info { margin-top: 8px; font-size: 0.82rem; color: var(--ink-soft); }
+  .cliente-info:empty { display: none; }
+  .cliente-info strong { color: var(--ink); }
+
+  /* Días de la semana y clientes */
+  .weekday-section, .clientes-section {
     margin-top: 26px;
     padding-top: 20px;
     border-top: 1px solid var(--line);
   }
-  .weekday-section h3 {
+  .weekday-section h3, .clientes-section h3 {
     font-family: 'Fraunces', serif;
     font-size: 0.92rem;
     font-weight: 600;
     margin: 0;
     color: var(--ink);
   }
-  .weekday-highlight {
+  .weekday-highlight, .clientes-summary {
     margin: 14px 0 14px;
     font-size: 0.9rem;
     color: var(--ink-soft);
   }
-  .weekday-highlight strong { color: var(--ink); }
+  .weekday-highlight strong, .clientes-summary strong { color: var(--ink); }
   .weekday-days { font-size: 0.75rem; opacity: 0.8; }
   .ranking-bar-fill.top { background: var(--green); }
 
@@ -820,7 +838,9 @@
 
         <div class="field">
           <label for="cliente">Cliente (opcional)</label>
-          <input type="text" id="cliente" placeholder="Nombre">
+          <input type="text" id="cliente" placeholder="Nombre" autocomplete="off" autocapitalize="words" autocorrect="off">
+          <div class="cliente-suggest" id="clienteSuggest"></div>
+          <div class="cliente-info" id="clienteInfo"></div>
         </div>
 
         <div class="field">
@@ -983,6 +1003,13 @@
           <p class="weekday-highlight" id="weekdayHighlight"></p>
           <div class="ranking-list" id="rankingWeekdays"></div>
           <p class="footer-note">Promedio de cortes por día. Solo cuentan los días con cortes cargados (los días cerrados no bajan el promedio) y no se incluye el día de hoy hasta que termine.</p>
+        </div>
+
+        <div class="clientes-section">
+          <h3>Clientes frecuentes</h3>
+          <p class="clientes-summary" id="clientesSummary"></p>
+          <div class="ranking-list" id="rankingClientes"></div>
+          <p class="footer-note">Cuenta todos los cortes cargados con nombre. "Juan", "juan" y "Juan " se toman como el mismo cliente.</p>
         </div>
       </section>
 
@@ -1549,6 +1576,10 @@
     document.getElementById('rankingBarberos').innerHTML = '';
     document.getElementById('rankingServicios').innerHTML = '';
     document.getElementById('rankingWeekdays').innerHTML = '';
+    document.getElementById('rankingClientes').innerHTML = '';
+    document.getElementById('clientesSummary').textContent = '';
+    document.getElementById('clienteSuggest').innerHTML = '';
+    document.getElementById('clienteInfo').innerHTML = '';
     document.getElementById('weekdayHighlight').textContent = '';
     goalWeekFill.style.width = '0%';
     goalMonthFill.style.width = '0%';
@@ -1699,6 +1730,7 @@
     servicioSel.value = '';
     barberoSel.value = '';
     clienteInput.value = '';
+    updateClienteHelper();
     resetPay();
     horaInput.value = nowTime();
 
@@ -1970,6 +2002,99 @@
     renderRankingList(document.getElementById('rankingBarberos'), porBarbero, 5);
     renderRankingList(document.getElementById('rankingServicios'), porServicio, 5);
     renderWeekdays();
+    renderClientes();
+  }
+
+  // ---- clientes: lista, sugerencias y estadísticas ----
+  // Se arma sola a partir de los cortes ya cargados (campo "cliente").
+  function clientKey(name) {
+    return String(name || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  function shortDate(dateStr) {
+    return dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7);
+  }
+
+  function buildClientIndex() {
+    const map = new Map();
+    Object.keys(diasCache).sort().forEach(dateStr => {
+      (diasCache[dateStr] || []).forEach(e => {
+        const raw = String(e.cliente || '').trim();
+        const key = clientKey(raw);
+        if (!key) return;
+        let c = map.get(key);
+        if (!c) { c = { key, count: 0, total: 0, last: '', lastVariant: '', variants: {} }; map.set(key, c); }
+        c.count += 1;
+        c.total += Number(e.efectivo || 0) + Number(e.mercadopago || 0);
+        c.last = dateStr;
+        c.lastVariant = raw;
+        c.variants[raw] = (c.variants[raw] || 0) + 1;
+      });
+    });
+    map.forEach(c => {
+      // nombre a mostrar: la forma de escribirlo más usada (si empatan, la más reciente)
+      c.name = Object.keys(c.variants).reduce((a, b) =>
+        (c.variants[b] > c.variants[a] || (c.variants[b] === c.variants[a] && b === c.lastVariant)) ? b : a);
+    });
+    return map;
+  }
+
+  function timesText(n) { return n === 1 ? '1 vez' : n + ' veces'; }
+
+  const clienteSuggest = document.getElementById('clienteSuggest');
+  const clienteInfo = document.getElementById('clienteInfo');
+
+  function updateClienteHelper() {
+    const key = clientKey(clienteInput.value);
+    if (!key) { clienteSuggest.innerHTML = ''; clienteInfo.innerHTML = ''; return; }
+    const idx = buildClientIndex();
+    const exact = idx.get(key);
+    const matches = [...idx.values()]
+      .filter(c => c.key !== key && (c.key.startsWith(key) || c.key.split(' ').some(w => w.startsWith(key))))
+      .sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1))
+      .slice(0, 6);
+    clienteSuggest.innerHTML = matches.map(c =>
+      `<button type="button" class="cliente-chip" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} <small>· ${c.count}</small></button>`
+    ).join('');
+    if (exact) {
+      clienteInfo.innerHTML = `<strong>${escapeHtml(exact.name)}</strong>: se cortó ${timesText(exact.count)} · último corte: ${shortDate(exact.last)}`;
+    } else {
+      clienteInfo.textContent = matches.length ? '' : 'Cliente nuevo';
+    }
+  }
+
+  clienteInput.addEventListener('input', updateClienteHelper);
+  clienteSuggest.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.cliente-chip');
+    if (!btn) return;
+    clienteInput.value = btn.dataset.name;
+    updateClienteHelper();
+  });
+
+  function renderClientes() {
+    const idx = buildClientIndex();
+    const list = [...idx.values()].sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1));
+    const container = document.getElementById('rankingClientes');
+    const summary = document.getElementById('clientesSummary');
+    if (list.length === 0) {
+      summary.textContent = '';
+      container.innerHTML = '<p class="footer-note">Todavía no hay cortes con nombre de cliente.</p>';
+      return;
+    }
+    const volvieron = list.filter(c => c.count > 1).length;
+    summary.innerHTML = `<strong>${list.length}</strong> ${list.length === 1 ? 'cliente registrado' : 'clientes registrados'} · <strong>${volvieron}</strong> ${volvieron === 1 ? 'volvió' : 'volvieron'} más de una vez.`;
+    const top = list.slice(0, 10);
+    const max = top[0].count || 1;
+    container.innerHTML = top.map(c => `
+      <div class="ranking-row">
+        <div class="ranking-top">
+          <span class="name">${escapeHtml(c.name)} <span class="weekday-days">(último: ${shortDate(c.last)})</span></span>
+          <span>${c.count} ${c.count === 1 ? 'corte' : 'cortes'} · ${fmtMoney(c.total)}</span>
+        </div>
+        <div class="ranking-bar-track"><div class="ranking-bar-fill" style="width:${Math.round((c.count / max) * 100)}%;"></div></div>
+      </div>`).join('');
   }
 
   // ---- días de la semana (promedio histórico) ----
