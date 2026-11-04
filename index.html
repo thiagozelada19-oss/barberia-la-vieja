@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Registro de cortes</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#16281F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" id="appleTitle" content="Cortes">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -528,6 +536,39 @@
     border-radius: 4px;
   }
 
+  /* Aviso para instalar la app */
+  .install-banner {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 24px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--line);
+    font-size: 0.85rem;
+    color: var(--ink);
+  }
+  .install-banner.show { display: flex; }
+  .install-banner span { flex: 1; }
+  .install-banner button {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--green);
+    background: var(--green);
+    color: #fff;
+    cursor: pointer;
+  }
+  .install-banner button.close {
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    padding: 7px 8px;
+    font-size: 1rem;
+  }
+  :root:not([data-theme="light"]) .install-banner button:not(.close) { color: #10160F; }
+  [data-theme="dark"] .install-banner button:not(.close) { color: #10160F; }
+
   /* Sugerencias de clientes */
   .cliente-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .cliente-suggest:empty { display: none; }
@@ -813,6 +854,12 @@
     <button class="settings-btn" id="settingsToggle">⚙ Editables</button>
     <button class="logout-link" id="logoutBtn">Cerrar sesión</button>
   </div>
+</div>
+
+<div class="install-banner" id="installBanner">
+  <span id="installText"></span>
+  <button type="button" id="installBtn" style="display:none;">Instalar</button>
+  <button type="button" class="close" id="installClose" aria-label="Cerrar">✕</button>
 </div>
 
 <main>
@@ -1411,6 +1458,8 @@
     }
     brandNameEl.textContent = name;
     document.title = name + ' — Registro de cortes';
+    const appleTitle = document.getElementById('appleTitle');
+    if (appleTitle) appleTitle.setAttribute('content', name);
     loginTitleEl.textContent = name;
     brandLogoEl.src = currentLogoSrc();
     try { localStorage.setItem(STORAGE_LAST_SHOP, name); } catch (e) {}
@@ -1498,6 +1547,65 @@
 
   // cache del nombre para la pantalla de login (antes de iniciar sesión)
   applyBranding();
+
+  // ---- PWA: instalar como app ----
+  const installBanner = document.getElementById('installBanner');
+  const installText = document.getElementById('installText');
+  const installBtn = document.getElementById('installBtn');
+  const STORAGE_INSTALL_DISMISSED = 'barberia_install_dismissed';
+  let deferredInstall = null;
+
+  function isStandalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+      window.navigator.standalone === true;
+  }
+  function installDismissed() {
+    try { return localStorage.getItem(STORAGE_INSTALL_DISMISSED) === '1'; } catch (e) { return false; }
+  }
+  function isIOS() {
+    const ua = window.navigator.userAgent || '';
+    return /iphone|ipad|ipod/i.test(ua) ||
+      (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+  }
+  function hideInstallBanner() { installBanner.classList.remove('show'); }
+
+  function showInstallBanner() {
+    if (isStandalone() || installDismissed()) return;
+    if (deferredInstall) {
+      installText.textContent = '📲 Instalá la app en este dispositivo para abrirla como cualquier otra.';
+      installBtn.style.display = '';
+      installBanner.classList.add('show');
+    } else if (isIOS()) {
+      installText.textContent = '📲 Para instalarla: tocá el botón Compartir y elegí "Agregar a pantalla de inicio".';
+      installBtn.style.display = 'none';
+      installBanner.classList.add('show');
+    }
+  }
+
+  window.addEventListener('beforeinstallprompt', (ev) => {
+    ev.preventDefault();
+    deferredInstall = ev;
+    showInstallBanner();
+  });
+  window.addEventListener('appinstalled', () => { deferredInstall = null; hideInstallBanner(); });
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    try { await deferredInstall.userChoice; } catch (e) {}
+    deferredInstall = null;
+    hideInstallBanner();
+  });
+  document.getElementById('installClose').addEventListener('click', () => {
+    try { localStorage.setItem(STORAGE_INSTALL_DISMISSED, '1'); } catch (e) {}
+    hideInstallBanner();
+  });
+  showInstallBanner();
+
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => console.error('No se pudo registrar el service worker:', err));
+    });
+  }
 
   function loadServicios() { return cloud.servicios || []; }
   function saveServicios(l) { cloud.servicios = l; pushShopUpdate({ servicios: l }); }
