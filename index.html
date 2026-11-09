@@ -550,6 +550,23 @@
   .caja-total .caja-label { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
   .caja-total strong { font-family: 'Fraunces', serif; font-size: 1.8rem; color: var(--ink); }
   .caja-total strong.neg { color: var(--efectivo); }
+  .caja-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+  .caja-card {
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .caja-card .caja-label { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+  .caja-card .caja-sub2 { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
+  .caja-card .caja-big {
+    display: block; margin: 8px 0 10px;
+    font-family: 'Fraunces', serif; font-size: 1.7rem; color: var(--ink);
+  }
+  .caja-card .caja-big.neg { color: var(--efectivo); }
+  .caja-card .caja-breakdown { margin-top: 0; }
+  .caja-table td:not(:first-child), .caja-table th:not(:first-child) { text-align: right; }
+  .caja-table tr.actual td { font-weight: 600; }
   .caja-breakdown { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; }
   .caja-row { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-soft); }
   .caja-row strong { color: var(--ink); white-space: nowrap; }
@@ -1258,25 +1275,60 @@
 
     <div id="cajaTab" class="tab-hidden">
       <section class="panel settings-panel" style="margin-top:24px;">
-        <h2>Caja de la barbería</h2>
-        <div class="caja-total">
-          <span class="caja-label">En caja</span>
-          <strong id="cajaTotal">$0</strong>
+        <h2>Cajas</h2>
+        <div class="caja-cards">
+          <div class="caja-card">
+            <span class="caja-label">Caja bruta</span>
+            <div class="caja-sub2">Todo lo cobrado, menos lo que ya salió</div>
+            <strong class="caja-big" id="cajaBrutaTotal">$0</strong>
+            <div class="caja-breakdown" id="cajaBrutaRows"></div>
+          </div>
+          <div class="caja-card">
+            <span class="caja-label">Se queda la barbería</span>
+            <div class="caja-sub2">Después de pagarle a los barberos</div>
+            <strong class="caja-big" id="cajaBarberiaTotal">$0</strong>
+            <div class="caja-breakdown" id="cajaBarberiaRows"></div>
+          </div>
         </div>
-        <div class="caja-breakdown" id="cajaBreakdown"></div>
         <p class="footer-note" id="cajaNote"></p>
       </section>
 
       <section class="panel settings-panel" style="margin-top:20px;">
+        <h2>Pendiente de pagar a los barberos</h2>
+        <p class="desc">Comisión de sus cortes, menos los adelantos y pagos ya anotados. Es la diferencia entre las dos cajas.</p>
+        <div id="cajaPendiente"></div>
+      </section>
+
+      <section class="panel settings-panel" style="margin-top:20px;">
+        <h2>Semana a semana</h2>
+        <div class="table-scroll">
+          <table class="caja-table">
+            <thead>
+              <tr><th>Semana</th><th>Bruto</th><th>A barberos</th><th>Se queda</th><th>Gastos</th></tr>
+            </thead>
+            <tbody id="cajaSemanasBody"></tbody>
+          </table>
+        </div>
+        <button type="button" class="add-btn" id="cajaSemanasMore" style="width:auto; margin-top:14px; padding:9px 16px; background:transparent; color:var(--green); border:1px solid var(--green); display:none;">Ver todas las semanas</button>
+        <p class="footer-note">Semanas de domingo a sábado. "A barberos" es la comisión de esa semana (sin descontar adelantos). "Gastos" son las extracciones anotadas esa semana. No incluye ingresos anotados a mano.</p>
+      </section>
+
+      <section class="panel settings-panel" style="margin-top:20px;">
         <h2>Anotar un movimiento</h2>
-        <p class="desc">Sacar plata de la caja para pagar algo de la barbería (impuestos, alquiler…), un adelanto del jefe, o plata que se suma a la caja.</p>
+        <p class="desc">Un adelanto a un barbero se descuenta de lo que le toca esa semana. Un pago es lo que se le pagó a un barbero. Las extracciones son para pagar algo de la barbería.</p>
         <div class="field" style="max-width:340px;">
           <label for="cajaTipo">Tipo</label>
           <select id="cajaTipo">
             <option value="extraccion">Extracción (pagar algo de la barbería)</option>
-            <option value="adelanto">Adelanto del jefe</option>
+            <option value="adelanto">Adelanto a un barbero</option>
+            <option value="pago">Pago a un barbero</option>
             <option value="ingreso">Ingreso a la caja</option>
           </select>
+        </div>
+        <div class="field" id="cajaBarberoField" style="max-width:340px; display:none;">
+          <label for="cajaBarbero">Barbero</label>
+          <select id="cajaBarbero"></select>
+          <p class="footer-note" id="cajaBarberoHint" style="margin-top:6px;"></p>
         </div>
         <div class="field" style="max-width:340px;">
           <label for="cajaMonto">Monto</label>
@@ -1957,8 +2009,12 @@
     document.getElementById('clienteSuggest').innerHTML = '';
     document.getElementById('clienteInfo').innerHTML = '';
     document.getElementById('weekdayHighlight').textContent = '';
-    document.getElementById('cajaTotal').textContent = '$0';
-    document.getElementById('cajaBreakdown').innerHTML = '';
+    document.getElementById('cajaBrutaTotal').textContent = '$0';
+    document.getElementById('cajaBarberiaTotal').textContent = '$0';
+    document.getElementById('cajaBrutaRows').innerHTML = '';
+    document.getElementById('cajaBarberiaRows').innerHTML = '';
+    document.getElementById('cajaPendiente').innerHTML = '';
+    document.getElementById('cajaSemanasBody').innerHTML = '';
     document.getElementById('cajaList').innerHTML = '';
     setJefeTab('panel');
     goalWeekFill.style.width = '0%';
@@ -2576,23 +2632,35 @@
   // ---- caja de la barbería ----
   const CAJA_TIPOS = {
     extraccion: { label: 'Extracción', sign: -1 },
-    adelanto: { label: 'Adelanto del jefe', sign: -1 },
+    adelanto: { label: 'Adelanto a barbero', sign: -1 },
+    pago: { label: 'Pago a barbero', sign: -1 },
     ingreso: { label: 'Ingreso', sign: 1 }
   };
-  const cajaTotalEl = document.getElementById('cajaTotal');
-  const cajaBreakdownEl = document.getElementById('cajaBreakdown');
-  const cajaNoteEl = document.getElementById('cajaNote');
-  const cajaListEl = document.getElementById('cajaList');
-  const cajaTipoEl = document.getElementById('cajaTipo');
-  const cajaMontoEl = document.getElementById('cajaMonto');
-  const cajaConceptoEl = document.getElementById('cajaConcepto');
-  const cajaFechaEl = document.getElementById('cajaFecha');
-  const cajaStatusEl = document.getElementById('cajaStatus');
-  const cajaDesdeEl = document.getElementById('cajaDesdeInput');
-  const jefeSelectEl = document.getElementById('jefeSelect');
-  const jefeTabsEl = document.getElementById('jefeTabs');
-  const panelTabEl = document.getElementById('panelTab');
-  const cajaTabEl = document.getElementById('cajaTab');
+  const $c = (id) => document.getElementById(id);
+  const cajaBrutaEl = $c('cajaBrutaTotal');
+  const cajaBarberiaEl = $c('cajaBarberiaTotal');
+  const cajaBrutaRowsEl = $c('cajaBrutaRows');
+  const cajaBarberiaRowsEl = $c('cajaBarberiaRows');
+  const cajaNoteEl = $c('cajaNote');
+  const cajaPendienteEl = $c('cajaPendiente');
+  const cajaSemanasBodyEl = $c('cajaSemanasBody');
+  const cajaSemanasMoreEl = $c('cajaSemanasMore');
+  const cajaListEl = $c('cajaList');
+  const cajaTipoEl = $c('cajaTipo');
+  const cajaBarberoFieldEl = $c('cajaBarberoField');
+  const cajaBarberoEl = $c('cajaBarbero');
+  const cajaBarberoHintEl = $c('cajaBarberoHint');
+  const cajaMontoEl = $c('cajaMonto');
+  const cajaConceptoEl = $c('cajaConcepto');
+  const cajaFechaEl = $c('cajaFecha');
+  const cajaStatusEl = $c('cajaStatus');
+  const cajaDesdeEl = $c('cajaDesdeInput');
+  const jefeSelectEl = $c('jefeSelect');
+  const jefeTabsEl = $c('jefeTabs');
+  const panelTabEl = $c('panelTab');
+  const cajaTabEl = $c('cajaTab');
+  let cajaShowAllWeeks = false;
+  const CAJA_WEEKS_VISIBLE = 12;
 
   // El jefe no cobra comisión: todo lo que corta queda para la barbería.
   function comisionFor(name, comision) {
@@ -2602,6 +2670,11 @@
   function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
   function fmtMovDate(f) { return f.slice(8, 10) + '/' + f.slice(5, 7) + '/' + f.slice(2, 4); }
   function fmtSigned(n, sign) { return (sign < 0 ? '−' : '+') + fmtMoney(Math.round(Math.abs(n))); }
+  function fmtMoneyS(n) {
+    const r = Math.round(n);
+    return (r < 0 ? '−' : '') + fmtMoney(Math.abs(r));
+  }
+  function needsBarbero(tipo) { return tipo === 'adelanto' || tipo === 'pago'; }
 
   function cleanCajaMovs(list) {
     const out = [];
@@ -2615,27 +2688,81 @@
         fecha: m.fecha,
         tipo: m.tipo,
         monto,
-        concepto: String(m.concepto || '').slice(0, 60)
+        concepto: String(m.concepto || '').slice(0, 60),
+        barbero: needsBarbero(m.tipo) ? String(m.barbero || '').slice(0, 60) : ''
       });
     });
     return out;
   }
 
-  // Caja = lo que dejan los cortes (después de pagar a los barberos) + ingresos − extracciones − adelantos
+  // Dos cajas:
+  //  - bruta  = todo lo cobrado por cortes + ingresos − pagos − adelantos − extracciones
+  //  - barbería = lo que dejan los cortes después de la comisión + ingresos − extracciones
+  // La diferencia entre las dos es lo que todavía se le debe a los barberos.
   function cajaResumen() {
     const desde = validDateStr(cloud.cajaDesde) ? cloud.cajaDesde : '';
-    const dates = Object.keys(diasCache).filter(d => validDateStr(d) && (!desde || d >= desde));
     const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
-    const cortes = netoBarberia(sumForDates(dates), comision);
-    let ingresos = 0, extracciones = 0, adelantos = 0;
+    const dates = Object.keys(diasCache).filter(d => validDateStr(d) && (!desde || d >= desde));
+    const cortes = sumForDates(dates);
+    const porBarbero = {};
+    const get = n => porBarbero[n] || (porBarbero[n] = { comision: 0, adelantos: 0, pagos: 0 });
+    let comisionTotal = 0;
+    Object.keys(cortes.porBarbero).forEach(name => {
+      const c = cortes.porBarbero[name].total * (comisionFor(name, comision) / 100);
+      comisionTotal += c;
+      get(name).comision += c;
+    });
+    let ingresos = 0, extracciones = 0, adelantos = 0, pagos = 0, adelantosSueltos = 0;
     (cloud.cajaMovs || []).forEach(m => {
       if (desde && m.fecha < desde) return;
       if (m.tipo === 'ingreso') ingresos += m.monto;
       else if (m.tipo === 'extraccion') extracciones += m.monto;
-      else if (m.tipo === 'adelanto') adelantos += m.monto;
+      else if (m.tipo === 'pago') { pagos += m.monto; get(m.barbero || '').pagos += m.monto; }
+      else if (m.tipo === 'adelanto') {
+        if (m.barbero) { adelantos += m.monto; get(m.barbero).adelantos += m.monto; }
+        else adelantosSueltos += m.monto;   // adelantos viejos sin barbero: se cuentan como un gasto
+      }
     });
-    return { desde, comision, cortes, ingresos, extracciones, adelantos,
-      total: cortes + ingresos - extracciones - adelantos };
+    const bruto = cortes.total;
+    return {
+      desde, comision, bruto, comisionTotal, ingresos, extracciones, adelantos, pagos, adelantosSueltos,
+      gastos: extracciones + adelantosSueltos,
+      pendiente: comisionTotal - adelantos - pagos,
+      porBarbero,
+      brutaTotal: bruto + ingresos - extracciones - adelantos - adelantosSueltos - pagos,
+      barberiaTotal: (bruto - comisionTotal) + ingresos - extracciones - adelantosSueltos
+    };
+  }
+
+  function weekStartStr(dateStr) {
+    return dateStrFromDate(sundayOf(new Date(dateStr + 'T00:00:00')));
+  }
+
+  // Semana a semana (domingo a sábado): bruto, comisión de los barberos, lo que se queda y gastos
+  function cajaSemanas() {
+    const desde = validDateStr(cloud.cajaDesde) ? cloud.cajaDesde : '';
+    const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
+    const weeks = {};
+    const wk = ds => { const k = weekStartStr(ds); return weeks[k] || (weeks[k] = { bruto: 0, comision: 0, gastos: 0 }); };
+    Object.keys(diasCache).forEach(ds => {
+      if (!validDateStr(ds) || (desde && ds < desde)) return;
+      const d = sumForDates([ds]);
+      if (d.cortes === 0) return;
+      const w = wk(ds);
+      w.bruto += d.total;
+      Object.keys(d.porBarbero).forEach(n => {
+        w.comision += d.porBarbero[n].total * (comisionFor(n, comision) / 100);
+      });
+    });
+    (cloud.cajaMovs || []).forEach(m => {
+      if (desde && m.fecha < desde) return;
+      if (m.tipo === 'extraccion' || (m.tipo === 'adelanto' && !m.barbero)) wk(m.fecha).gastos += m.monto;
+    });
+    wk(todayStr());   // la semana actual siempre aparece
+    return Object.keys(weeks).sort().reverse().map(k => ({
+      start: k, bruto: weeks[k].bruto, comision: weeks[k].comision,
+      queda: weeks[k].bruto - weeks[k].comision, gastos: weeks[k].gastos
+    }));
   }
 
   function renderJefeSelect() {
@@ -2646,31 +2773,104 @@
     jefeSelectEl.value = cloud.jefe || '';
   }
 
+  // Barberos a los que se les puede anotar un adelanto o pago (el jefe no cobra comisión)
+  function renderCajaBarberoSelect(resumen) {
+    const keep = cajaBarberoEl.value;
+    const names = loadBarberos().filter(n => n !== cloud.jefe);
+    Object.keys(resumen.porBarbero).forEach(n => {
+      const b = resumen.porBarbero[n];
+      if (n && n !== cloud.jefe && names.indexOf(n) === -1 && (b.comision || b.adelantos || b.pagos)) names.push(n);
+    });
+    cajaBarberoEl.innerHTML = names.length
+      ? names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
+      : '<option value="">No hay barberos cargados</option>';
+    if (keep && names.indexOf(keep) !== -1) cajaBarberoEl.value = keep;
+  }
+
+  function updateCajaBarberoHint(resumen) {
+    const tipo = cajaTipoEl.value;
+    cajaBarberoFieldEl.style.display = needsBarbero(tipo) ? '' : 'none';
+    if (!needsBarbero(tipo)) { cajaBarberoHintEl.textContent = ''; return; }
+    if (tipo === 'adelanto') {
+      cajaBarberoHintEl.textContent = 'Se descuenta de lo que le toca cobrar esa semana.';
+      return;
+    }
+    const b = resumen.porBarbero[cajaBarberoEl.value];
+    const pend = b ? b.comision - b.adelantos - b.pagos : 0;
+    cajaBarberoHintEl.textContent = 'Pendiente de pagarle: ' + fmtMoneyS(pend);
+  }
+
   function renderCaja() {
     const r = cajaResumen();
-    const total = Math.round(r.total);
-    cajaTotalEl.textContent = (total < 0 ? '−' : '') + fmtMoney(Math.abs(total));
-    cajaTotalEl.classList.toggle('neg', total < 0);
-    cajaBreakdownEl.innerHTML = [
-      ['Lo que dejaron los cortes (después de pagar a los barberos)', fmtSigned(r.cortes, 1)],
-      ['Ingresos anotados', fmtSigned(r.ingresos, 1)],
-      ['Extracciones', fmtSigned(r.extracciones, -1)],
-      ['Adelantos del jefe', fmtSigned(r.adelantos, -1)]
-    ].map(row => `<div class="caja-row"><span>${row[0]}</span><strong>${row[1]}</strong></div>`).join('');
+    const row = (label, text) => `<div class="caja-row"><span>${label}</span><strong>${text}</strong></div>`;
+
+    cajaBrutaEl.textContent = fmtMoneyS(r.brutaTotal);
+    cajaBrutaEl.classList.toggle('neg', Math.round(r.brutaTotal) < 0);
+    cajaBrutaRowsEl.innerHTML =
+      row('Cobrado por cortes', fmtSigned(r.bruto, 1)) +
+      row('Ingresos anotados', fmtSigned(r.ingresos, 1)) +
+      row('Pagos a barberos', fmtSigned(r.pagos, -1)) +
+      row('Adelantos a barberos', fmtSigned(r.adelantos, -1)) +
+      row('Extracciones', fmtSigned(r.gastos, -1));
+
+    cajaBarberiaEl.textContent = fmtMoneyS(r.barberiaTotal);
+    cajaBarberiaEl.classList.toggle('neg', Math.round(r.barberiaTotal) < 0);
+    cajaBarberiaRowsEl.innerHTML =
+      row('Dejan los cortes (sin la comisión)', fmtSigned(r.bruto - r.comisionTotal, 1)) +
+      row('Ingresos anotados', fmtSigned(r.ingresos, 1)) +
+      row('Extracciones', fmtSigned(r.gastos, -1));
+
     cajaNoteEl.textContent = (r.desde
       ? 'Contando desde el ' + fmtMovDate(r.desde) + '. Lo anterior no se suma.'
       : 'Contando todo el historial cargado.') +
       ' Se calcula con la comisión actual (' + r.comision + '%).';
 
+    // pendiente por barbero
+    const pend = Object.keys(r.porBarbero).map(n => {
+      const b = r.porBarbero[n];
+      return { name: n, comision: b.comision, adelantos: b.adelantos, pagos: b.pagos, pend: b.comision - b.adelantos - b.pagos };
+    }).filter(b => b.comision || b.adelantos || b.pagos).sort((a, b) => b.pend - a.pend);
+    cajaPendienteEl.innerHTML = pend.length
+      ? pend.map(b => `<div class="caja-item">
+          <div class="caja-main">
+            <div>${b.name ? escapeHtml(b.name) : 'Sin barbero asignado'}</div>
+            <div class="caja-sub">Comisión ${fmtMoney(Math.round(b.comision))} − adelantos ${fmtMoney(Math.round(b.adelantos))} − pagos ${fmtMoney(Math.round(b.pagos))}</div>
+          </div>
+          <span class="caja-amount ${b.pend < -0.5 ? 'out' : ''}">${fmtMoneyS(b.pend)}${b.pend < -0.5 ? ' (adelantó de más)' : ''}</span>
+        </div>`).join('') +
+        `<div class="caja-item"><div class="caja-main"><strong>Total pendiente</strong></div><span class="caja-amount">${fmtMoneyS(r.pendiente)}</span></div>`
+      : '<p class="footer-note">Todavía no hay comisiones ni pagos para mostrar.</p>';
+
+    // semana a semana
+    const weeks = cajaSemanas();
+    const shown = cajaShowAllWeeks ? weeks : weeks.slice(0, CAJA_WEEKS_VISIBLE);
+    const currentStart = weekStartStr(todayStr());
+    cajaSemanasBodyEl.innerHTML = shown.map(w => {
+      const sun = new Date(w.start + 'T00:00:00');
+      const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+      const actual = w.start === currentStart;
+      return `<tr${actual ? ' class="actual"' : ''}>
+        <td>${fmtDateShort(sun)} – ${fmtDateShort(sat)}${actual ? ' <span class="weekday-days">(esta semana)</span>' : ''}</td>
+        <td>${fmtMoney(Math.round(w.bruto))}</td>
+        <td>${fmtMoney(Math.round(w.comision))}</td>
+        <td>${fmtMoney(Math.round(w.queda))}</td>
+        <td>${w.gastos ? fmtMoney(Math.round(w.gastos)) : '—'}</td>
+      </tr>`;
+    }).join('');
+    cajaSemanasMoreEl.style.display = weeks.length > CAJA_WEEKS_VISIBLE ? '' : 'none';
+    cajaSemanasMoreEl.textContent = cajaShowAllWeeks ? 'Ver solo las últimas ' + CAJA_WEEKS_VISIBLE : 'Ver todas las semanas (' + weeks.length + ')';
+
+    // movimientos
     const movs = (cloud.cajaMovs || []).slice().sort((a, b) =>
       a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : b.id - a.id));
     cajaListEl.innerHTML = movs.length
       ? '<div>' + movs.slice(0, 50).map(m => {
           const t = CAJA_TIPOS[m.tipo];
           const fuera = r.desde && m.fecha < r.desde;
+          const quien = needsBarbero(m.tipo) ? (m.barbero ? ': ' + escapeHtml(m.barbero) : ' (sin barbero)') : '';
           return `<div class="caja-item">
             <div class="caja-main">
-              <div>${escapeHtml(t.label)}${m.concepto ? ' — ' + escapeHtml(m.concepto) : ''}</div>
+              <div>${escapeHtml(t.label)}${quien}${m.concepto ? ' — ' + escapeHtml(m.concepto) : ''}</div>
               <div class="caja-sub">${fmtMovDate(m.fecha)}${fuera ? ' · no se cuenta (es anterior a la fecha de inicio)' : ''}</div>
             </div>
             <span class="caja-amount ${t.sign < 0 ? 'out' : 'in'}">${fmtSigned(m.monto, t.sign)}</span>
@@ -2681,6 +2881,8 @@
       : '<p class="footer-note">Todavía no anotaste movimientos.</p>';
 
     renderJefeSelect();
+    renderCajaBarberoSelect(r);
+    updateCajaBarberoHint(r);
     if (!cajaFechaEl.value) cajaFechaEl.value = todayStr();
     if (document.activeElement !== cajaDesdeEl) cajaDesdeEl.value = cloud.cajaDesde || '';
   }
@@ -2690,25 +2892,35 @@
     if (msg) setTimeout(() => { if (cajaStatusEl.textContent === msg) cajaStatusEl.textContent = ''; }, 3500);
   }
 
-  document.getElementById('cajaAddBtn').addEventListener('click', () => {
+  function afterCajaChange() {
+    renderCaja();
+    renderPagos();   // los adelantos se descuentan en "Pagos por barbero"
+  }
+
+  cajaTipoEl.addEventListener('change', () => updateCajaBarberoHint(cajaResumen()));
+  cajaBarberoEl.addEventListener('change', () => updateCajaBarberoHint(cajaResumen()));
+
+  $c('cajaAddBtn').addEventListener('click', () => {
     const tipo = cajaTipoEl.value;
     const monto = Math.round(Number(cajaMontoEl.value));
     if (!CAJA_TIPOS[tipo]) return;
+    const barbero = needsBarbero(tipo) ? cajaBarberoEl.value : '';
+    if (needsBarbero(tipo) && !barbero) { setCajaStatus('Elegí a qué barbero corresponde.'); return; }
     if (!isFinite(monto) || monto <= 0) { setCajaStatus('Escribí un monto mayor a 0.'); return; }
     if (monto > 1000000000) { setCajaStatus('Ese monto es demasiado grande. Revisalo.'); return; }
     const fecha = validDateStr(cajaFechaEl.value) ? cajaFechaEl.value : todayStr();
     const concepto = cajaConceptoEl.value.replace(/\s+/g, ' ').trim().slice(0, 60);
-    const mov = { id: Date.now() * 1000 + Math.floor(Math.random() * 1000), fecha, tipo, monto, concepto };
+    const mov = { id: Date.now() * 1000 + Math.floor(Math.random() * 1000), fecha, tipo, monto, concepto, barbero };
     cloud.cajaMovs = (cloud.cajaMovs || []).concat([mov]);
     pushShopUpdate({ cajaMovs: cloud.cajaMovs });
     cajaMontoEl.value = '';
     cajaConceptoEl.value = '';
     cajaFechaEl.value = todayStr();
-    renderCaja();
+    afterCajaChange();
     setCajaStatus('Movimiento anotado ✓');
   });
 
-  document.getElementById('cajaChips').addEventListener('click', (ev) => {
+  $c('cajaChips').addEventListener('click', (ev) => {
     const btn = ev.target.closest('button[data-concepto]');
     if (btn) cajaConceptoEl.value = btn.dataset.concepto;
   });
@@ -2722,6 +2934,11 @@
     if (!confirm('¿Borrar este movimiento? (' + CAJA_TIPOS[m.tipo].label + ' de ' + fmtMoney(m.monto) + ')')) return;
     cloud.cajaMovs = cloud.cajaMovs.filter(x => x.id !== id);
     pushShopUpdate({ cajaMovs: cloud.cajaMovs });
+    afterCajaChange();
+  });
+
+  cajaSemanasMoreEl.addEventListener('click', () => {
+    cajaShowAllWeeks = !cajaShowAllWeeks;
     renderCaja();
   });
 
@@ -2738,7 +2955,7 @@
     pushShopUpdate({ cajaDesde: cloud.cajaDesde });
     renderCaja();
   });
-  document.getElementById('cajaDesdeClear').addEventListener('click', () => {
+  $c('cajaDesdeClear').addEventListener('click', () => {
     cloud.cajaDesde = '';
     cajaDesdeEl.value = '';
     pushShopUpdate({ cajaDesde: '' });
@@ -2859,10 +3076,19 @@
     saturday.setDate(pagosWeekSunday.getDate() + 6);
     pagosWeekLabel.textContent = fmtDateShort(pagosWeekSunday) + ' – ' + fmtDateShort(saturday);
 
-    const names = Array.from(new Set([...loadBarberos(), ...Object.keys(data.porBarbero)]));
+    // adelantos de la semana: se descuentan de lo que se le paga a cada barbero
+    const adelantos = {};
+    (cloud.cajaMovs || []).forEach(m => {
+      if (m.tipo === 'adelanto' && m.barbero && dateStrs.indexOf(m.fecha) !== -1) {
+        adelantos[m.barbero] = (adelantos[m.barbero] || 0) + m.monto;
+      }
+    });
+    const names = Array.from(new Set([...loadBarberos(), ...Object.keys(data.porBarbero), ...Object.keys(adelantos)]));
     const rows = names.map(name => {
       const d = data.porBarbero[name] || { cortes: 0, total: 0 };
-      return { name, cortes: d.cortes, total: d.total, pago: d.total * (comisionFor(name, comision) / 100), isJefe: !!cloud.jefe && name === cloud.jefe };
+      const comisionPesos = d.total * (comisionFor(name, comision) / 100);
+      const adelanto = adelantos[name] || 0;
+      return { name, cortes: d.cortes, total: d.total, comisionPesos, adelanto, pago: comisionPesos - adelanto, isJefe: !!cloud.jefe && name === cloud.jefe };
     }).sort((a, b) => b.total - a.total);
 
     pagosBody.innerHTML = rows.length
@@ -2871,14 +3097,14 @@
           <td>${escapeHtml(r.name)}${r.isJefe ? ' <span class="weekday-days">(jefe · sin comisión)</span>' : ''}</td>
           <td>${r.cortes}</td>
           <td>${fmtMoney(r.total)}</td>
-          <td>${fmtMoney(r.pago)}</td>
+          <td>${fmtMoneyS(r.pago)}${r.adelanto ? `<div class="weekday-days">${fmtMoney(Math.round(r.comisionPesos))} − adelanto ${fmtMoney(r.adelanto)}</div>` : ''}</td>
         </tr>`).join('')
       : '<tr><td colspan="4" style="text-align:center;color:var(--ink-soft);">No hay barberos cargados.</td></tr>';
 
     const totalGenerado = rows.reduce((s, r) => s + r.total, 0);
     const totalPagar = rows.reduce((s, r) => s + r.pago, 0);
     pagosTotalGenerado.textContent = fmtMoney(totalGenerado);
-    pagosTotalPagar.textContent = fmtMoney(totalPagar);
+    pagosTotalPagar.textContent = fmtMoneyS(totalPagar);
     pagosNeto.textContent = fmtMoney(netoBarberia(data, comision));
   }
 
