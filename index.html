@@ -536,6 +536,42 @@
     border-radius: 4px;
   }
 
+  /* Pestañas de Editables y caja */
+  .tab-hidden { display: none !important; }
+  .jefe-tabs { margin: 14px 0 0; }
+  .caja-total {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; flex-wrap: wrap;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .caja-total .caja-label { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+  .caja-total strong { font-family: 'Fraunces', serif; font-size: 1.8rem; color: var(--ink); }
+  .caja-total strong.neg { color: var(--efectivo); }
+  .caja-breakdown { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; }
+  .caja-row { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-soft); }
+  .caja-row strong { color: var(--ink); white-space: nowrap; }
+  .caja-item {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.88rem;
+  }
+  .caja-item:last-child { border-bottom: none; }
+  .caja-item .caja-main { flex: 1; min-width: 0; color: var(--ink); }
+  .caja-item .caja-sub { color: var(--ink-soft); font-size: 0.78rem; }
+  .caja-item .caja-amount { font-weight: 600; white-space: nowrap; }
+  .caja-item .caja-amount.in { color: var(--green); }
+  .caja-item .caja-amount.out { color: var(--efectivo); }
+  .caja-item button {
+    font-family: inherit; font-size: 0.78rem;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-soft); border-radius: 8px;
+    padding: 5px 9px; cursor: pointer;
+  }
+
   /* Aviso para instalar la app */
   .install-banner {
     display: none;
@@ -940,6 +976,12 @@
         <button type="button" class="settings-btn" id="jefeLockBtn">🔒 Bloquear</button>
       </div>
 
+      <div class="period-toggle jefe-tabs" id="jefeTabs">
+        <button type="button" class="active" data-tab="panel">Panel</button>
+        <button type="button" data-tab="caja">Caja</button>
+      </div>
+
+      <div id="panelTab">
       <section class="panel log-panel">
         <div class="stats-header">
           <h2 id="logTitle" style="margin-bottom:0;">Cortes de hoy</h2>
@@ -1202,7 +1244,7 @@
 
     <section class="panel settings-panel" style="margin-top:20px;">
       <h2>Copia de seguridad</h2>
-      <p class="desc">Descargá un archivo con todo lo cargado (cortes, barberos, servicios y precios) para guardarlo o pasarlo a otro dispositivo. Restaurarlo reemplaza los datos actuales de este navegador.</p>
+      <p class="desc">Descargá un archivo con todo lo cargado (cortes, barberos, servicios, precios y caja) para guardarlo o pasarlo a otro dispositivo. Restaurarlo reemplaza los datos actuales de este navegador.</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
         <button type="button" class="add-btn" id="backupBtn" style="width:auto; margin-top:0; padding:10px 18px;">Descargar backup</button>
         <label class="add-btn" style="width:auto; margin-top:0; padding:10px 18px; background:transparent; color:var(--green); border:1px solid var(--green); cursor:pointer;">
@@ -1212,6 +1254,72 @@
       </div>
       <p class="footer-note" id="backupStatus"></p>
     </section>
+    </div>
+
+    <div id="cajaTab" class="tab-hidden">
+      <section class="panel settings-panel" style="margin-top:24px;">
+        <h2>Caja de la barbería</h2>
+        <div class="caja-total">
+          <span class="caja-label">En caja</span>
+          <strong id="cajaTotal">$0</strong>
+        </div>
+        <div class="caja-breakdown" id="cajaBreakdown"></div>
+        <p class="footer-note" id="cajaNote"></p>
+      </section>
+
+      <section class="panel settings-panel" style="margin-top:20px;">
+        <h2>Anotar un movimiento</h2>
+        <p class="desc">Sacar plata de la caja para pagar algo de la barbería (impuestos, alquiler…), un adelanto del jefe, o plata que se suma a la caja.</p>
+        <div class="field" style="max-width:340px;">
+          <label for="cajaTipo">Tipo</label>
+          <select id="cajaTipo">
+            <option value="extraccion">Extracción (pagar algo de la barbería)</option>
+            <option value="adelanto">Adelanto del jefe</option>
+            <option value="ingreso">Ingreso a la caja</option>
+          </select>
+        </div>
+        <div class="field" style="max-width:340px;">
+          <label for="cajaMonto">Monto</label>
+          <input type="number" id="cajaMonto" inputmode="numeric" min="0" step="1" placeholder="$">
+        </div>
+        <div class="field" style="max-width:340px;">
+          <label for="cajaConcepto">Concepto (opcional)</label>
+          <input type="text" id="cajaConcepto" maxlength="60" autocomplete="off" placeholder="Ej: impuestos, alquiler, luz">
+          <div class="cliente-suggest" id="cajaChips" style="display:flex;">
+            <button type="button" class="cliente-chip" data-concepto="Impuestos">Impuestos</button>
+            <button type="button" class="cliente-chip" data-concepto="Alquiler">Alquiler</button>
+            <button type="button" class="cliente-chip" data-concepto="Servicios">Servicios</button>
+            <button type="button" class="cliente-chip" data-concepto="Insumos">Insumos</button>
+          </div>
+        </div>
+        <div class="field" style="max-width:340px;">
+          <label for="cajaFecha">Fecha</label>
+          <input type="date" id="cajaFecha">
+        </div>
+        <button type="button" class="add-btn" id="cajaAddBtn" style="width:auto; margin-top:0; padding:10px 18px;">Anotar movimiento</button>
+        <p class="footer-note" id="cajaStatus"></p>
+      </section>
+
+      <section class="panel settings-panel" style="margin-top:20px;">
+        <h2>Movimientos</h2>
+        <div id="cajaList"></div>
+      </section>
+
+      <section class="panel settings-panel" style="margin-top:20px;">
+        <h2>Jefe y cómo se cuenta la caja</h2>
+        <div class="field" style="max-width:340px;">
+          <label for="jefeSelect">Jefe (uno de los barberos cargados)</label>
+          <select id="jefeSelect"></select>
+        </div>
+        <p class="desc">Los cortes del jefe quedan 100% para la barbería: no se le paga comisión. Dejalo en "Sin jefe asignado" si todos cobran comisión.</p>
+        <div class="field" style="max-width:340px; margin-top:16px;">
+          <label for="cajaDesdeInput">Contar la caja desde</label>
+          <input type="date" id="cajaDesdeInput">
+        </div>
+        <button type="button" class="add-btn" id="cajaDesdeClear" style="width:auto; margin-top:0; padding:10px 18px; background:transparent; color:var(--green); border:1px solid var(--green);">Contar todo el historial</button>
+        <p class="footer-note">Lo anterior a esa fecha no se suma a la caja (ni cortes ni movimientos). Si arrancás la caja con plata que ya había, anotala como "Ingreso".</p>
+      </section>
+    </div>
     </div>
   </div>
 
@@ -1393,7 +1501,7 @@
   }
 
   // ---- CLOUD data cache (kept in sync with Firestore in real time) ----
-  let cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null, shopName: null, logo: '' };
+  let cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null, shopName: null, logo: '', jefe: '', cajaMovs: [], cajaDesde: '' };
   let diasCache = {};
   const NUMBER_FIELD_MAP = {};
   NUMBER_FIELD_MAP[STORAGE_GOAL_WEEK] = 'goalWeek';
@@ -1425,6 +1533,9 @@
     cloud.goalWeek = d.goalWeek || 0;
     cloud.goalMonth = d.goalMonth || 0;
     cloud.password = d.password || null;
+    cloud.jefe = typeof d.jefe === 'string' ? d.jefe : '';
+    cloud.cajaMovs = cleanCajaMovs(d.cajaMovs);
+    cloud.cajaDesde = validDateStr(d.cajaDesde) ? d.cajaDesde : '';
     const legacy = d.shopName === undefined;
     cloud.shopName = legacy ? LEGACY_SHOP_NAME : String(d.shopName || '').trim();
     cloud.logo = (d.logo !== undefined && d.logo !== null) ? d.logo : (legacy ? 'default' : '');
@@ -1846,6 +1957,10 @@
     document.getElementById('clienteSuggest').innerHTML = '';
     document.getElementById('clienteInfo').innerHTML = '';
     document.getElementById('weekdayHighlight').textContent = '';
+    document.getElementById('cajaTotal').textContent = '$0';
+    document.getElementById('cajaBreakdown').innerHTML = '';
+    document.getElementById('cajaList').innerHTML = '';
+    setJefeTab('panel');
     goalWeekFill.style.width = '0%';
     goalMonthFill.style.width = '0%';
     goalWeekText.textContent = '$0';
@@ -1964,6 +2079,7 @@
     renderStats();
     renderGoals();
     renderPagos();
+    renderCaja();
   }
 
   form.addEventListener('submit', (e) => {
@@ -2035,15 +2151,15 @@
       barberos: loadBarberos(),
       servicios: loadServicios(),
       precios: loadPrecios(),
+      jefe: cloud.jefe || '',
+      cajaDesde: cloud.cajaDesde || '',
+      cajaMovs: cloud.cajaMovs || [],
       dias: {}
     };
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.indexOf(STORAGE_PREFIX) === 0) {
-        const dateStr = key.slice(STORAGE_PREFIX.length);
-        data.dias[dateStr] = loadDay(dateStr);
-      }
-    }
+    // los cortes viven en la nube (diasCache), no en el almacenamiento local del navegador
+    Object.keys(diasCache).forEach(dateStr => {
+      data.dias[dateStr] = loadDay(dateStr);
+    });
     return data;
   }
 
@@ -2092,6 +2208,18 @@
         if (Array.isArray(data.barberos)) saveBarberos(data.barberos);
         if (Array.isArray(data.servicios)) saveServicios(data.servicios);
         if (Array.isArray(data.precios)) savePrecios(data.precios);
+        if (Array.isArray(data.cajaMovs)) {
+          cloud.cajaMovs = cleanCajaMovs(data.cajaMovs);
+          pushShopUpdate({ cajaMovs: cloud.cajaMovs });
+        }
+        if (typeof data.jefe === 'string') {
+          cloud.jefe = data.jefe;
+          pushShopUpdate({ jefe: cloud.jefe });
+        }
+        if (typeof data.cajaDesde === 'string') {
+          cloud.cajaDesde = validDateStr(data.cajaDesde) ? data.cajaDesde : '';
+          pushShopUpdate({ cajaDesde: cloud.cajaDesde });
+        }
         if (data.dias && typeof data.dias === 'object') {
           Object.keys(data.dias).forEach(dateStr => {
             saveDay(dateStr, data.dias[dateStr]);
@@ -2445,6 +2573,189 @@
   });
   weekdayToggle.querySelector(`[data-wd="${currentWeekdayRange}"]`).classList.add('active');
 
+  // ---- caja de la barbería ----
+  const CAJA_TIPOS = {
+    extraccion: { label: 'Extracción', sign: -1 },
+    adelanto: { label: 'Adelanto del jefe', sign: -1 },
+    ingreso: { label: 'Ingreso', sign: 1 }
+  };
+  const cajaTotalEl = document.getElementById('cajaTotal');
+  const cajaBreakdownEl = document.getElementById('cajaBreakdown');
+  const cajaNoteEl = document.getElementById('cajaNote');
+  const cajaListEl = document.getElementById('cajaList');
+  const cajaTipoEl = document.getElementById('cajaTipo');
+  const cajaMontoEl = document.getElementById('cajaMonto');
+  const cajaConceptoEl = document.getElementById('cajaConcepto');
+  const cajaFechaEl = document.getElementById('cajaFecha');
+  const cajaStatusEl = document.getElementById('cajaStatus');
+  const cajaDesdeEl = document.getElementById('cajaDesdeInput');
+  const jefeSelectEl = document.getElementById('jefeSelect');
+  const jefeTabsEl = document.getElementById('jefeTabs');
+  const panelTabEl = document.getElementById('panelTab');
+  const cajaTabEl = document.getElementById('cajaTab');
+
+  // El jefe no cobra comisión: todo lo que corta queda para la barbería.
+  function comisionFor(name, comision) {
+    return (cloud.jefe && name === cloud.jefe) ? 0 : comision;
+  }
+
+  function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function fmtMovDate(f) { return f.slice(8, 10) + '/' + f.slice(5, 7) + '/' + f.slice(2, 4); }
+  function fmtSigned(n, sign) { return (sign < 0 ? '−' : '+') + fmtMoney(Math.round(Math.abs(n))); }
+
+  function cleanCajaMovs(list) {
+    const out = [];
+    (Array.isArray(list) ? list : []).forEach(m => {
+      if (!m || !CAJA_TIPOS[m.tipo] || !validDateStr(m.fecha)) return;
+      const monto = Math.round(Number(m.monto));
+      if (!isFinite(monto) || monto <= 0) return;
+      const id = Number(m.id);
+      out.push({
+        id: (isFinite(id) && id > 0) ? id : Date.now() * 1000 + Math.floor(Math.random() * 1000),
+        fecha: m.fecha,
+        tipo: m.tipo,
+        monto,
+        concepto: String(m.concepto || '').slice(0, 60)
+      });
+    });
+    return out;
+  }
+
+  // Caja = lo que dejan los cortes (después de pagar a los barberos) + ingresos − extracciones − adelantos
+  function cajaResumen() {
+    const desde = validDateStr(cloud.cajaDesde) ? cloud.cajaDesde : '';
+    const dates = Object.keys(diasCache).filter(d => validDateStr(d) && (!desde || d >= desde));
+    const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
+    const cortes = netoBarberia(sumForDates(dates), comision);
+    let ingresos = 0, extracciones = 0, adelantos = 0;
+    (cloud.cajaMovs || []).forEach(m => {
+      if (desde && m.fecha < desde) return;
+      if (m.tipo === 'ingreso') ingresos += m.monto;
+      else if (m.tipo === 'extraccion') extracciones += m.monto;
+      else if (m.tipo === 'adelanto') adelantos += m.monto;
+    });
+    return { desde, comision, cortes, ingresos, extracciones, adelantos,
+      total: cortes + ingresos - extracciones - adelantos };
+  }
+
+  function renderJefeSelect() {
+    const names = loadBarberos().slice();
+    if (cloud.jefe && names.indexOf(cloud.jefe) === -1) names.push(cloud.jefe);
+    jefeSelectEl.innerHTML = '<option value="">Sin jefe asignado</option>' +
+      names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    jefeSelectEl.value = cloud.jefe || '';
+  }
+
+  function renderCaja() {
+    const r = cajaResumen();
+    const total = Math.round(r.total);
+    cajaTotalEl.textContent = (total < 0 ? '−' : '') + fmtMoney(Math.abs(total));
+    cajaTotalEl.classList.toggle('neg', total < 0);
+    cajaBreakdownEl.innerHTML = [
+      ['Lo que dejaron los cortes (después de pagar a los barberos)', fmtSigned(r.cortes, 1)],
+      ['Ingresos anotados', fmtSigned(r.ingresos, 1)],
+      ['Extracciones', fmtSigned(r.extracciones, -1)],
+      ['Adelantos del jefe', fmtSigned(r.adelantos, -1)]
+    ].map(row => `<div class="caja-row"><span>${row[0]}</span><strong>${row[1]}</strong></div>`).join('');
+    cajaNoteEl.textContent = (r.desde
+      ? 'Contando desde el ' + fmtMovDate(r.desde) + '. Lo anterior no se suma.'
+      : 'Contando todo el historial cargado.') +
+      ' Se calcula con la comisión actual (' + r.comision + '%).';
+
+    const movs = (cloud.cajaMovs || []).slice().sort((a, b) =>
+      a.fecha < b.fecha ? 1 : (a.fecha > b.fecha ? -1 : b.id - a.id));
+    cajaListEl.innerHTML = movs.length
+      ? '<div>' + movs.slice(0, 50).map(m => {
+          const t = CAJA_TIPOS[m.tipo];
+          const fuera = r.desde && m.fecha < r.desde;
+          return `<div class="caja-item">
+            <div class="caja-main">
+              <div>${escapeHtml(t.label)}${m.concepto ? ' — ' + escapeHtml(m.concepto) : ''}</div>
+              <div class="caja-sub">${fmtMovDate(m.fecha)}${fuera ? ' · no se cuenta (es anterior a la fecha de inicio)' : ''}</div>
+            </div>
+            <span class="caja-amount ${t.sign < 0 ? 'out' : 'in'}">${fmtSigned(m.monto, t.sign)}</span>
+            <button type="button" data-id="${m.id}">Borrar</button>
+          </div>`;
+        }).join('') + '</div>' +
+        (movs.length > 50 ? `<p class="footer-note">Mostrando los últimos 50 de ${movs.length}.</p>` : '')
+      : '<p class="footer-note">Todavía no anotaste movimientos.</p>';
+
+    renderJefeSelect();
+    if (!cajaFechaEl.value) cajaFechaEl.value = todayStr();
+    if (document.activeElement !== cajaDesdeEl) cajaDesdeEl.value = cloud.cajaDesde || '';
+  }
+
+  function setCajaStatus(msg) {
+    cajaStatusEl.textContent = msg;
+    if (msg) setTimeout(() => { if (cajaStatusEl.textContent === msg) cajaStatusEl.textContent = ''; }, 3500);
+  }
+
+  document.getElementById('cajaAddBtn').addEventListener('click', () => {
+    const tipo = cajaTipoEl.value;
+    const monto = Math.round(Number(cajaMontoEl.value));
+    if (!CAJA_TIPOS[tipo]) return;
+    if (!isFinite(monto) || monto <= 0) { setCajaStatus('Escribí un monto mayor a 0.'); return; }
+    if (monto > 1000000000) { setCajaStatus('Ese monto es demasiado grande. Revisalo.'); return; }
+    const fecha = validDateStr(cajaFechaEl.value) ? cajaFechaEl.value : todayStr();
+    const concepto = cajaConceptoEl.value.replace(/\s+/g, ' ').trim().slice(0, 60);
+    const mov = { id: Date.now() * 1000 + Math.floor(Math.random() * 1000), fecha, tipo, monto, concepto };
+    cloud.cajaMovs = (cloud.cajaMovs || []).concat([mov]);
+    pushShopUpdate({ cajaMovs: cloud.cajaMovs });
+    cajaMontoEl.value = '';
+    cajaConceptoEl.value = '';
+    cajaFechaEl.value = todayStr();
+    renderCaja();
+    setCajaStatus('Movimiento anotado ✓');
+  });
+
+  document.getElementById('cajaChips').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-concepto]');
+    if (btn) cajaConceptoEl.value = btn.dataset.concepto;
+  });
+
+  cajaListEl.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-id]');
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const m = (cloud.cajaMovs || []).find(x => x.id === id);
+    if (!m) return;
+    if (!confirm('¿Borrar este movimiento? (' + CAJA_TIPOS[m.tipo].label + ' de ' + fmtMoney(m.monto) + ')')) return;
+    cloud.cajaMovs = cloud.cajaMovs.filter(x => x.id !== id);
+    pushShopUpdate({ cajaMovs: cloud.cajaMovs });
+    renderCaja();
+  });
+
+  jefeSelectEl.addEventListener('change', () => {
+    cloud.jefe = jefeSelectEl.value;
+    pushShopUpdate({ jefe: cloud.jefe });
+    renderPagos();
+    renderGoals();
+    renderCaja();
+  });
+
+  cajaDesdeEl.addEventListener('change', () => {
+    cloud.cajaDesde = validDateStr(cajaDesdeEl.value) ? cajaDesdeEl.value : '';
+    pushShopUpdate({ cajaDesde: cloud.cajaDesde });
+    renderCaja();
+  });
+  document.getElementById('cajaDesdeClear').addEventListener('click', () => {
+    cloud.cajaDesde = '';
+    cajaDesdeEl.value = '';
+    pushShopUpdate({ cajaDesde: '' });
+    renderCaja();
+  });
+
+  function setJefeTab(tab) {
+    panelTabEl.classList.toggle('tab-hidden', tab !== 'panel');
+    cajaTabEl.classList.toggle('tab-hidden', tab !== 'caja');
+    jefeTabsEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab === 'caja') renderCaja();
+    else if (jefeUnlocked) renderStats();   // el gráfico necesita redibujarse al volver a mostrarse
+  }
+  jefeTabsEl.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => setJefeTab(b.dataset.tab));
+  });
+
   // ---- objetivos & pagos (semana domingo a domingo) ----
   function fmtDateShort(d) {
     return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
@@ -2509,7 +2820,7 @@
   function netoBarberia(data, comision) {
     let pagos = 0;
     Object.keys(data.porBarbero).forEach(name => {
-      pagos += data.porBarbero[name].total * (comision / 100);
+      pagos += data.porBarbero[name].total * (comisionFor(name, comision) / 100);
     });
     return data.total - pagos;
   }
@@ -2551,13 +2862,13 @@
     const names = Array.from(new Set([...loadBarberos(), ...Object.keys(data.porBarbero)]));
     const rows = names.map(name => {
       const d = data.porBarbero[name] || { cortes: 0, total: 0 };
-      return { name, cortes: d.cortes, total: d.total, pago: d.total * (comision / 100) };
+      return { name, cortes: d.cortes, total: d.total, pago: d.total * (comisionFor(name, comision) / 100), isJefe: !!cloud.jefe && name === cloud.jefe };
     }).sort((a, b) => b.total - a.total);
 
     pagosBody.innerHTML = rows.length
       ? rows.map(r => `
         <tr>
-          <td>${escapeHtml(r.name)}</td>
+          <td>${escapeHtml(r.name)}${r.isJefe ? ' <span class="weekday-days">(jefe · sin comisión)</span>' : ''}</td>
           <td>${r.cortes}</td>
           <td>${fmtMoney(r.total)}</td>
           <td>${fmtMoney(r.pago)}</td>
@@ -2627,6 +2938,7 @@
       renderPrecioManageList();
       refreshPasswordSettingsUI();
       renderShopSettings();
+      renderCaja();
       if (jefeUnlocked) renderLog();
     }
   }
@@ -2719,7 +3031,7 @@
       cloudUser = null;
       if (unsubShopDoc) { unsubShopDoc(); unsubShopDoc = null; }
       if (unsubDias) { unsubDias(); unsubDias = null; }
-      cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null, shopName: null, logo: '' };
+      cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null, shopName: null, logo: '', jefe: '', cajaMovs: [], cajaDesde: '' };
       applyBranding();
       diasCache = {};
       jefeUnlocked = false;
