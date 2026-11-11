@@ -589,6 +589,39 @@
     padding: 5px 9px; cursor: pointer;
   }
 
+  /* Avisos de conexión y errores */
+  .sync-box { text-align: center; padding: 24px; max-width: 360px; line-height: 1.5; }
+  .sync-box .sync-detail { margin-top: 8px; font-size: 0.75rem; color: var(--ink-soft); }
+  .sync-box .sync-detail:empty { display: none; }
+  .sync-box .sync-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  .sync-box button {
+    font-family: inherit; font-size: 0.88rem;
+    padding: 9px 16px; border-radius: 8px;
+    border: 1px solid var(--green);
+    background: var(--green); color: #fff;
+    cursor: pointer;
+  }
+  .sync-box button.secondary { background: transparent; color: var(--green); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .sync-box button:not(.secondary) { color: #10160F; }
+  }
+  [data-theme="dark"] .sync-box button:not(.secondary) { color: #10160F; }
+  .cloud-banner {
+    display: none; align-items: center; gap: 10px;
+    padding: 10px 24px;
+    background: #8A2D1F; color: #fff;
+    font-size: 0.85rem; line-height: 1.4;
+  }
+  .cloud-banner.show { display: flex; }
+  .cloud-banner.info { background: #4A5445; }
+  .cloud-banner span { flex: 1; }
+  .cloud-banner button {
+    font-family: inherit; font-size: 0.85rem;
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid #fff; background: #fff; color: #8A2D1F;
+    cursor: pointer;
+  }
+
   /* Aviso para instalar la app */
   .install-banner {
     display: none;
@@ -619,7 +652,9 @@
     padding: 7px 8px;
     font-size: 1rem;
   }
-  :root:not([data-theme="light"]) .install-banner button:not(.close) { color: #10160F; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .install-banner button:not(.close) { color: #10160F; }
+  }
   [data-theme="dark"] .install-banner button:not(.close) { color: #10160F; }
 
   /* Sugerencias de clientes */
@@ -891,7 +926,16 @@
   </section>
 </div>
 
-<div class="sync-loading" id="syncLoading" style="display:none;">Sincronizando datos…</div>
+<div class="sync-loading" id="syncLoading" style="display:none;">
+  <div class="sync-box">
+    <div id="syncText">Sincronizando datos…</div>
+    <div class="sync-detail" id="syncDetail"></div>
+    <div class="sync-actions" id="syncActions" style="display:none;">
+      <button type="button" id="syncRetryBtn">Reintentar</button>
+      <button type="button" class="secondary" id="syncLogoutBtn">Cerrar sesión</button>
+    </div>
+  </div>
+</div>
 
 <div id="appRoot" style="display:none;">
 
@@ -907,6 +951,11 @@
     <button class="settings-btn" id="settingsToggle">⚙ Editables</button>
     <button class="logout-link" id="logoutBtn">Cerrar sesión</button>
   </div>
+</div>
+
+<div class="cloud-banner" id="cloudBanner" role="alert">
+  <span id="cloudBannerText"></span>
+  <button type="button" id="cloudBannerBtn" style="display:none;">Reintentar</button>
 </div>
 
 <div class="install-banner" id="installBanner">
@@ -1563,7 +1612,10 @@
   function pushShopUpdate(partial) {
     if (!cloudUser) return;
     const ref = window.__fb.doc(window.__fb.db, 'shops', cloudUser.uid);
-    window.__fb.setDoc(ref, partial, { merge: true }).catch(err => console.error('Error guardando en la nube:', err));
+    const key = 'shop:' + Object.keys(partial).sort().join(',');
+    window.__fb.setDoc(ref, partial, { merge: true })
+      .then(() => clearWriteError(key))
+      .catch(err => reportWriteError(key, err, () => pushShopUpdate(partial)));
   }
 
   function loadBarberos() { return cloud.barberos || []; }
@@ -1780,7 +1832,10 @@
     diasCache[dateStr] = entries;
     if (!cloudUser) return;
     const ref = window.__fb.doc(window.__fb.db, 'shops', cloudUser.uid, 'dias', dateStr);
-    window.__fb.setDoc(ref, { entries }).catch(err => console.error('Error guardando en la nube:', err));
+    const key = 'dia:' + dateStr;
+    window.__fb.setDoc(ref, { entries })
+      .then(() => clearWriteError(key))
+      .catch(err => reportWriteError(key, err, () => saveDay(dateStr, diasCache[dateStr] || entries)));
   }
 
   function loadNumber(key, fallback) {
@@ -3141,16 +3196,23 @@
     loginGate.style.display = 'flex';
     syncLoading.style.display = 'none';
     appRoot.style.display = 'none';
+    appShown = false;
+    renderBanner();
   }
   function showSyncing() {
     loginGate.style.display = 'none';
     syncLoading.style.display = 'flex';
     appRoot.style.display = 'none';
+    appShown = false;
+    resetSyncScreen();
+    renderBanner();
   }
   function showApp() {
     loginGate.style.display = 'none';
     syncLoading.style.display = 'none';
     appRoot.style.display = 'block';
+    appShown = true;
+    renderBanner();
   }
 
   function refreshAllUI() {
@@ -3201,8 +3263,108 @@
     } catch (e) { console.error('Error migrando cortes existentes:', e); }
   }
 
-  async function initCloudSync() {
-    showSyncing();
+  // ---- avisos de conexión y errores ----
+  const cloudBanner = document.getElementById('cloudBanner');
+  const cloudBannerText = document.getElementById('cloudBannerText');
+  const cloudBannerBtn = document.getElementById('cloudBannerBtn');
+  const syncText = document.getElementById('syncText');
+  const syncDetail = document.getElementById('syncDetail');
+  const syncActions = document.getElementById('syncActions');
+  const LOAD_TIMEOUT_MS = 20000;
+  let appShown = false;
+  const bannerState = { offline: false, listen: null, save: null };
+  const pendingWrites = new Map();   // escrituras que fallaron: clave -> función para reintentarlas
+  let loadTimer = null;
+
+  function errCode(err) {
+    return (err && err.code) ? String(err.code).replace('firestore/', '') : '';
+  }
+  function reasonFor(err) {
+    switch (errCode(err)) {
+      case 'resource-exhausted': return 'se alcanzó el límite diario de uso';
+      case 'permission-denied': return 'sin permiso';
+      case 'unauthenticated': return 'la sesión venció';
+      case 'unavailable': return 'sin conexión con el servidor';
+      default: return 'error ' + (errCode(err) || 'desconocido');
+    }
+  }
+  function loadErrorMessage(err) {
+    switch (errCode(err)) {
+      case 'resource-exhausted': return 'Se alcanzó el límite diario de uso de la base de datos. Se renueva solo todos los días, de madrugada. Probá de nuevo más tarde.';
+      case 'permission-denied': return 'No tenés permiso para ver estos datos. Cerrá sesión y volvé a entrar.';
+      case 'unauthenticated': return 'La sesión venció. Cerrá sesión y volvé a entrar.';
+      case 'unavailable':
+      case 'timeout': return 'Está tardando más de lo normal. Revisá tu conexión a internet y reintentá.';
+      default: return 'No se pudieron cargar los datos. Reintentá en un momento.';
+    }
+  }
+
+  function showSyncError(err) {
+    syncText.textContent = loadErrorMessage(err);
+    syncDetail.textContent = errCode(err) ? '(código: ' + errCode(err) + ')' : '';
+    syncActions.style.display = 'flex';
+  }
+  function resetSyncScreen() {
+    syncText.textContent = 'Sincronizando datos…';
+    syncDetail.textContent = '';
+    syncActions.style.display = 'none';
+  }
+
+  // Aviso arriba de la app. Prioridad: no se pudo guardar > se perdió la actualización > sin conexión
+  function renderBanner() {
+    let text = '', retry = null, info = false;
+    if (bannerState.save) {
+      text = '⚠ No se pudo guardar en la nube (' + bannerState.save + '). Lo que anotaste está solo en este dispositivo: no cierres la app y tocá Reintentar.';
+      retry = retryAllWrites;
+    } else if (bannerState.listen) {
+      text = '⚠ Se perdió la actualización en vivo (' + bannerState.listen + '). Lo que ves puede estar desactualizado.';
+      retry = () => initCloudSync({ silent: true });
+    } else if (bannerState.offline) {
+      text = 'Sin conexión. Lo que anotes se guardará cuando vuelva internet, pero no cierres la app hasta entonces.';
+      info = true;
+    }
+    cloudBanner.classList.toggle('show', !!text && appShown);
+    cloudBanner.classList.toggle('info', info);
+    cloudBannerText.textContent = text;
+    cloudBannerBtn.style.display = retry ? '' : 'none';
+    cloudBannerBtn.onclick = retry;
+  }
+
+  function reportWriteError(key, err, retryFn) {
+    console.error('Error guardando en la nube:', err);
+    pendingWrites.set(key, retryFn);
+    bannerState.save = reasonFor(err);
+    renderBanner();
+  }
+  function clearWriteError(key) {
+    if (!pendingWrites.has(key)) return;
+    pendingWrites.delete(key);
+    if (pendingWrites.size === 0) bannerState.save = null;
+    renderBanner();
+  }
+  function retryAllWrites() {
+    Array.from(pendingWrites.values()).forEach(fn => fn());
+  }
+  function resetCloudErrors() {
+    clearTimeout(loadTimer);
+    pendingWrites.clear();
+    bannerState.listen = null;
+    bannerState.save = null;
+    renderBanner();
+  }
+
+  window.addEventListener('offline', () => { bannerState.offline = true; renderBanner(); });
+  window.addEventListener('online', () => { bannerState.offline = false; renderBanner(); });
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) bannerState.offline = true;
+
+  document.getElementById('syncRetryBtn').addEventListener('click', () => { if (cloudUser) initCloudSync(); });
+  document.getElementById('syncLogoutBtn').addEventListener('click', () => {
+    window.__fb.signOut(window.__fb.auth).catch(err => console.error('Error cerrando sesión:', err));
+  });
+
+  async function initCloudSync(opts) {
+    const silent = !!(opts && opts.silent);
+    if (!silent) showSyncing();
     const uid = cloudUser.uid;
     const shopRef = window.__fb.doc(window.__fb.db, 'shops', uid);
 
@@ -3221,8 +3383,29 @@
     if (unsubDias) unsubDias();
 
     let shopLoaded = false, diasLoaded = false;
+    clearTimeout(loadTimer);
     function maybeShowApp() {
-      if (shopLoaded && diasLoaded) showApp();
+      if (shopLoaded && diasLoaded) {
+        clearTimeout(loadTimer);
+        bannerState.listen = null;
+        showApp();
+      }
+    }
+    function onListenError(what, err) {
+      console.error('Error escuchando ' + what + ':', err);
+      clearTimeout(loadTimer);
+      if (appShown) {
+        bannerState.listen = reasonFor(err);
+        renderBanner();
+      } else {
+        showSyncError(err);
+      }
+    }
+    if (!silent) {
+      // si los datos tardan demasiado (por ejemplo sin internet), avisar en vez de quedarse esperando
+      loadTimer = setTimeout(() => {
+        if (!(shopLoaded && diasLoaded)) showSyncError({ code: 'timeout' });
+      }, LOAD_TIMEOUT_MS);
     }
 
     unsubShopDoc = window.__fb.onSnapshot(shopRef, (snap) => {
@@ -3231,7 +3414,7 @@
       shopLoaded = true;
       refreshAllUI();
       maybeShowApp();
-    }, (err) => console.error('Error escuchando datos del local:', err));
+    }, (err) => onListenError('los datos del local', err));
 
     const diasCol = window.__fb.collection(window.__fb.db, 'shops', uid, 'dias');
     unsubDias = window.__fb.onSnapshot(diasCol, (snapshot) => {
@@ -3245,7 +3428,7 @@
       diasLoaded = true;
       refreshAllUI();
       maybeShowApp();
-    }, (err) => console.error('Error escuchando cortes:', err));
+    }, (err) => onListenError('los cortes', err));
   }
 
   window.addEventListener('fb-auth-changed', (e) => {
@@ -3255,6 +3438,7 @@
       initCloudSync();
     } else {
       cloudUser = null;
+      resetCloudErrors();
       if (unsubShopDoc) { unsubShopDoc(); unsubShopDoc = null; }
       if (unsubDias) { unsubDias(); unsubDias = null; }
       cloud = { barberos: [], servicios: [], precios: [], comision: DEFAULT_COMISION, goalWeek: 0, goalMonth: 0, password: null, shopName: null, logo: '', jefe: '', cajaMovs: [], cajaDesde: '' };
@@ -3278,7 +3462,10 @@
     try {
       await window.__fb.signInWithEmailAndPassword(window.__fb.auth, email, pw);
     } catch (err) {
-      loginMsg.textContent = 'No se pudo iniciar sesión. Revisá el email y la contraseña.';
+      const c = err && err.code;
+      if (c === 'auth/network-request-failed') loginMsg.textContent = 'No hay conexión. Revisá tu internet e intentá de nuevo.';
+      else if (c === 'auth/too-many-requests') loginMsg.textContent = 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.';
+      else loginMsg.textContent = 'No se pudo iniciar sesión. Revisá el email y la contraseña.';
     }
     loginBtn.disabled = false;
   });
