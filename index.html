@@ -550,6 +550,12 @@
   .caja-total .caja-label { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
   .caja-total strong { font-family: 'Fraunces', serif; font-size: 1.8rem; color: var(--ink); }
   .caja-total strong.neg { color: var(--efectivo); }
+  .caja-vista {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap;
+    margin: 4px 0 16px;
+  }
+  .caja-vista .period-toggle { margin: 0; }
   .caja-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
   .caja-card {
     padding: 16px 18px;
@@ -1325,10 +1331,22 @@
     <div id="cajaTab" class="tab-hidden">
       <section class="panel settings-panel" style="margin-top:24px;">
         <h2>Cajas</h2>
+        <div class="caja-vista">
+          <div class="period-toggle" id="cajaVistaToggle">
+            <button type="button" class="active" data-vista="semana">Por semana</button>
+            <button type="button" data-vista="total">Total</button>
+          </div>
+          <div class="date-nav" id="cajaWeekNav">
+            <button type="button" id="cajaPrevWeek" aria-label="Semana anterior">←</button>
+            <span id="cajaWeekLabel" class="pagos-week-label"></span>
+            <button type="button" id="cajaNextWeek" aria-label="Semana siguiente">→</button>
+            <button type="button" id="cajaThisWeek">Esta semana</button>
+          </div>
+        </div>
         <div class="caja-cards">
           <div class="caja-card">
             <span class="caja-label">Caja bruta</span>
-            <div class="caja-sub2">Todo lo cobrado, menos lo que ya salió</div>
+            <div class="caja-sub2" id="cajaBrutaSub">Todo lo cobrado, menos lo que ya salió</div>
             <strong class="caja-big" id="cajaBrutaTotal">$0</strong>
             <div class="caja-breakdown" id="cajaBrutaRows"></div>
           </div>
@@ -1344,12 +1362,18 @@
 
       <section class="panel settings-panel" style="margin-top:20px;">
         <h2>Pendiente de pagar a los barberos</h2>
-        <p class="desc">Comisión de sus cortes, menos los adelantos y pagos ya anotados. Es la diferencia entre las dos cajas.</p>
+        <p class="desc" id="cajaPendienteDesc">Comisión de sus cortes, menos los adelantos y pagos ya anotados. Es la diferencia entre las dos cajas.</p>
         <div id="cajaPendiente"></div>
       </section>
 
       <section class="panel settings-panel" style="margin-top:20px;">
         <h2>Semana a semana</h2>
+        <div class="chart-scroll" id="cajaChartScroll" style="margin-top:6px;"></div>
+        <div class="chart-legend" style="margin-bottom:14px;">
+          <span><i class="dot" style="background:var(--brass)"></i> Bruto</span>
+          <span><i class="dot" style="background:var(--green)"></i> Se queda la barbería</span>
+          <span class="chart-legend-note">La última semana es la actual y todavía está en curso.</span>
+        </div>
         <div class="table-scroll">
           <table class="caja-table">
             <thead>
@@ -2714,6 +2738,14 @@
   const jefeTabsEl = $c('jefeTabs');
   const panelTabEl = $c('panelTab');
   const cajaTabEl = $c('cajaTab');
+  const cajaVistaToggleEl = $c('cajaVistaToggle');
+  const cajaWeekNavEl = $c('cajaWeekNav');
+  const cajaWeekLabelEl = $c('cajaWeekLabel');
+  const cajaBrutaSubEl = $c('cajaBrutaSub');
+  const cajaPendienteDescEl = $c('cajaPendienteDesc');
+  const cajaChartScrollEl = $c('cajaChartScroll');
+  let cajaVista = 'semana';   // 'semana' o 'total'
+  let cajaWeekStr = '';       // domingo de la semana que se está viendo
   let cajaShowAllWeeks = false;
   const CAJA_WEEKS_VISIBLE = 12;
 
@@ -2754,10 +2786,14 @@
   //  - bruta  = todo lo cobrado por cortes + ingresos − pagos − adelantos − extracciones
   //  - barbería = lo que dejan los cortes después de la comisión + ingresos − extracciones
   // La diferencia entre las dos es lo que todavía se le debe a los barberos.
-  function cajaResumen() {
+  // range: null = todo el historial, o { from, to } (fechas incluidas). Siempre respeta "contar desde".
+  function cajaResumen(range) {
     const desde = validDateStr(cloud.cajaDesde) ? cloud.cajaDesde : '';
     const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
-    const dates = Object.keys(diasCache).filter(d => validDateStr(d) && (!desde || d >= desde));
+    const lo = (range && range.from > desde) ? range.from : desde;
+    const hi = range ? range.to : '';
+    const inRange = d => (!lo || d >= lo) && (!hi || d <= hi);
+    const dates = Object.keys(diasCache).filter(d => validDateStr(d) && inRange(d));
     const cortes = sumForDates(dates);
     const porBarbero = {};
     const get = n => porBarbero[n] || (porBarbero[n] = { comision: 0, adelantos: 0, pagos: 0 });
@@ -2769,7 +2805,7 @@
     });
     let ingresos = 0, extracciones = 0, adelantos = 0, pagos = 0, adelantosSueltos = 0;
     (cloud.cajaMovs || []).forEach(m => {
-      if (desde && m.fecha < desde) return;
+      if (!inRange(m.fecha)) return;
       if (m.tipo === 'ingreso') ingresos += m.monto;
       else if (m.tipo === 'extraccion') extracciones += m.monto;
       else if (m.tipo === 'pago') { pagos += m.monto; get(m.barbero || '').pagos += m.monto; }
@@ -2855,10 +2891,140 @@
     cajaBarberoHintEl.textContent = 'Pendiente de pagarle: ' + fmtMoneyS(pend);
   }
 
+  function currentWeekStr() { return weekStartStr(todayStr()); }
+  function addDaysStr(ds, n) {
+    const d = new Date(ds + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return dateStrFromDate(d);
+  }
+  function weekLabelOf(startStr) {
+    const sun = new Date(startStr + 'T00:00:00');
+    const sat = new Date(sun);
+    sat.setDate(sun.getDate() + 6);
+    return fmtDateShort(sun) + ' – ' + fmtDateShort(sat);
+  }
+
+  // Lo que se le debe a cada barbero, semana por semana (domingo a sábado).
+  // Cada semana: comisión − adelantos de esa semana. Los pagos se aplican primero a las semanas más viejas.
+  function cajaDeudas() {
+    const desde = validDateStr(cloud.cajaDesde) ? cloud.cajaDesde : '';
+    const comision = loadNumber(STORAGE_COMISION, DEFAULT_COMISION);
+    const porB = {};
+    const get = n => porB[n] || (porB[n] = { weeks: {}, pagos: 0 });
+    const wk = (b, ds) => {
+      const k = weekStartStr(ds);
+      return b.weeks[k] || (b.weeks[k] = { comision: 0, adelantos: 0, pagado: 0 });
+    };
+    Object.keys(diasCache).forEach(ds => {
+      if (!validDateStr(ds) || (desde && ds < desde)) return;
+      const d = sumForDates([ds]);
+      Object.keys(d.porBarbero).forEach(n => {
+        wk(get(n), ds).comision += d.porBarbero[n].total * (comisionFor(n, comision) / 100);
+      });
+    });
+    (cloud.cajaMovs || []).forEach(m => {
+      if (desde && m.fecha < desde) return;
+      if (m.tipo === 'adelanto' && m.barbero) wk(get(m.barbero), m.fecha).adelantos += m.monto;
+      else if (m.tipo === 'pago') get(m.barbero || '').pagos += m.monto;
+    });
+    Object.keys(porB).forEach(n => {
+      const b = porB[n];
+      let left = b.pagos;
+      const keys = Object.keys(b.weeks).sort();
+      keys.forEach(k => {
+        const w = b.weeks[k];
+        const pay = Math.min(left, Math.max(w.comision - w.adelantos, 0));
+        w.pagado = pay;
+        left -= pay;
+      });
+      if (left > 0.0001) {   // pagó de más: queda como saldo a favor en la última semana
+        const last = keys.length ? keys[keys.length - 1] : currentWeekStr();
+        const w = b.weeks[last] || (b.weeks[last] = { comision: 0, adelantos: 0, pagado: 0 });
+        w.pagado += left;
+      }
+    });
+    return porB;
+  }
+
+  // ---- gráfico semana a semana ----
+  function niceCeil(v) {
+    if (v <= 0) return 1;
+    const exp = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+    const f = v / exp;
+    const nf = f <= 1 ? 1 : (f <= 2 ? 2 : (f <= 2.5 ? 2.5 : (f <= 5 ? 5 : 10)));
+    return nf * exp;
+  }
+  function fmtShortMoney(n) {
+    const a = Math.abs(n);
+    let t;
+    if (a >= 1000000) t = (Math.round(a / 100000) / 10).toString().replace('.', ',') + ' M';
+    else if (a >= 1000) t = Math.round(a / 1000) + ' mil';
+    else t = String(Math.round(a));
+    return (n < 0 ? '−' : '') + '$' + t;
+  }
+
+  // weeksAsc: semanas de la más vieja a la más nueva
+  function renderCajaChart(weeksAsc) {
+    if (!weeksAsc.some(w => w.bruto > 0)) {
+      cajaChartScrollEl.innerHTML = '<div class="stats-empty">Todavía no hay semanas con cortes para graficar.</div>';
+      return;
+    }
+    const n = weeksAsc.length;
+    const maxVal = Math.max(...weeksAsc.map(w => Math.max(w.bruto, w.queda)));
+    const yMax = niceCeil(maxVal);
+    const left = 70, right = 18, top = 22, bottom = 34, H = 230;
+    const slot = 58;
+    const width = Math.max(left + right + n * slot, cajaChartScrollEl.clientWidth - 4);
+    const plotW = width - left - right, plotH = H - top - bottom;
+    const X = i => left + plotW * (i + 0.5) / n;
+    const Y = v => top + plotH * (1 - Math.max(v, 0) / yMax);
+
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${H}" width="${width}" height="${H}">`;
+    for (let t = 0; t <= 5; t++) {
+      const v = yMax * t / 5, y = Y(v);
+      svg += `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" style="stroke:var(--line);stroke-width:1" />`;
+      svg += `<text x="${left - 8}" y="${y + 3}" text-anchor="end" class="bar-label">${fmtShortMoney(v)}</text>`;
+    }
+    const line = (key, color) => {
+      const pts = weeksAsc.map((w, i) => `${X(i).toFixed(1)},${Y(w[key]).toFixed(1)}`).join(' ');
+      if (n > 1) svg += `<polyline points="${pts}" fill="none" style="stroke:${color};stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round" />`;
+    };
+    line('bruto', 'var(--brass)');
+    line('queda', 'var(--green)');
+    weeksAsc.forEach((w, i) => {
+      const x = X(i);
+      const sun = new Date(w.start + 'T00:00:00');
+      const title = `Semana ${weekLabelOf(w.start)}: Bruto ${fmtMoney(Math.round(w.bruto))} · A barberos ${fmtMoney(Math.round(w.comision))} · Se queda ${fmtMoney(Math.round(w.queda))}`;
+      svg += `<g><title>${title}</title>`;
+      svg += `<circle cx="${x}" cy="${Y(w.bruto)}" r="4" style="fill:var(--brass)" />`;
+      svg += `<circle cx="${x}" cy="${Y(w.queda)}" r="4" style="fill:var(--green)" />`;
+      svg += `<rect x="${x - slot / 2}" y="${top}" width="${slot}" height="${plotH}" style="fill:transparent" />`;
+      svg += `</g>`;
+      svg += `<text x="${x}" y="${H - 12}" text-anchor="middle" class="bar-label">${fmtDateShort(sun)}</text>`;
+    });
+    const last = weeksAsc[n - 1], lx = X(n - 1);
+    svg += `<text x="${lx}" y="${Y(last.bruto) - 9}" text-anchor="middle" class="bar-count">${fmtShortMoney(last.bruto)}</text>`;
+    svg += `<text x="${lx}" y="${Y(last.queda) + 18}" text-anchor="middle" class="bar-count">${fmtShortMoney(last.queda)}</text>`;
+    svg += `</svg>`;
+    cajaChartScrollEl.innerHTML = svg;
+  }
+
   function renderCaja() {
-    const r = cajaResumen();
+    if (!cajaWeekStr) cajaWeekStr = currentWeekStr();
+    const semana = cajaVista === 'semana';
+    const range = semana ? { from: cajaWeekStr, to: addDaysStr(cajaWeekStr, 6) } : null;
+    const rTotal = cajaResumen(null);
+    const r = semana ? cajaResumen(range) : rTotal;
     const row = (label, text) => `<div class="caja-row"><span>${label}</span><strong>${text}</strong></div>`;
 
+    // selector: por semana / total
+    cajaVistaToggleEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.vista === cajaVista));
+    cajaWeekNavEl.style.display = semana ? '' : 'none';
+    cajaWeekLabelEl.textContent = weekLabelOf(cajaWeekStr) + (cajaWeekStr === currentWeekStr() ? ' (esta semana)' : '');
+
+    cajaBrutaSubEl.textContent = semana
+      ? 'Lo cobrado esa semana, menos lo que salió esa semana'
+      : 'Todo lo cobrado, menos lo que ya salió';
     cajaBrutaEl.textContent = fmtMoneyS(r.brutaTotal);
     cajaBrutaEl.classList.toggle('neg', Math.round(r.brutaTotal) < 0);
     cajaBrutaRowsEl.innerHTML =
@@ -2875,31 +3041,44 @@
       row('Ingresos anotados', fmtSigned(r.ingresos, 1)) +
       row('Extracciones', fmtSigned(r.gastos, -1));
 
-    cajaNoteEl.textContent = (r.desde
-      ? 'Contando desde el ' + fmtMovDate(r.desde) + '. Lo anterior no se suma.'
-      : 'Contando todo el historial cargado.') +
-      ' Se calcula con la comisión actual (' + r.comision + '%).';
+    let nota = semana ? 'Semana del ' + weekLabelOf(cajaWeekStr) + '.' : 'Total de todo el historial cargado.';
+    if (r.desde) {
+      nota += semana && range.to < r.desde
+        ? ' Esa semana es anterior a la fecha de inicio de la caja, por eso está en cero.'
+        : ' Contando desde el ' + fmtMovDate(r.desde) + '; lo anterior no se suma.';
+    }
+    cajaNoteEl.textContent = nota + ' Se calcula con la comisión actual (' + r.comision + '%).';
 
-    // pendiente por barbero
-    const pend = Object.keys(r.porBarbero).map(n => {
-      const b = r.porBarbero[n];
-      return { name: n, comision: b.comision, adelantos: b.adelantos, pagos: b.pagos, pend: b.comision - b.adelantos - b.pagos };
-    }).filter(b => b.comision || b.adelantos || b.pagos).sort((a, b) => b.pend - a.pend);
-    cajaPendienteEl.innerHTML = pend.length
-      ? pend.map(b => `<div class="caja-item">
+    // pendiente por barbero: de la semana elegida, o el total
+    const deudas = cajaDeudas();
+    const filas = Object.keys(deudas).map(nombre => {
+      const b = deudas[nombre];
+      let c = 0, a = 0, p = 0;
+      const add = w => { c += w.comision; a += w.adelantos; p += w.pagado; };
+      if (semana) { if (b.weeks[cajaWeekStr]) add(b.weeks[cajaWeekStr]); }
+      else Object.keys(b.weeks).forEach(k => add(b.weeks[k]));
+      return { name: nombre, comision: c, adelantos: a, pagos: p, pend: c - a - p };
+    }).filter(b => b.comision || b.adelantos || b.pagos).sort((x, y) => y.pend - x.pend);
+    const totalPend = filas.reduce((sum, b) => sum + b.pend, 0);
+    cajaPendienteDescEl.textContent = semana
+      ? 'Lo que quedó sin pagar de esa semana: comisión menos adelantos. Los pagos se aplican primero a las semanas más viejas. En "Total" ves todo junto.'
+      : 'Comisión de sus cortes, menos los adelantos y pagos ya anotados. Es la diferencia entre las dos cajas.';
+    cajaPendienteEl.innerHTML = filas.length
+      ? filas.map(b => `<div class="caja-item">
           <div class="caja-main">
             <div>${b.name ? escapeHtml(b.name) : 'Sin barbero asignado'}</div>
-            <div class="caja-sub">Comisión ${fmtMoney(Math.round(b.comision))} − adelantos ${fmtMoney(Math.round(b.adelantos))} − pagos ${fmtMoney(Math.round(b.pagos))}</div>
+            <div class="caja-sub">Comisión ${fmtMoney(Math.round(b.comision))} − adelantos ${fmtMoney(Math.round(b.adelantos))} − ${semana ? 'pagado' : 'pagos'} ${fmtMoney(Math.round(b.pagos))}</div>
           </div>
-          <span class="caja-amount ${b.pend < -0.5 ? 'out' : ''}">${fmtMoneyS(b.pend)}${b.pend < -0.5 ? ' (adelantó de más)' : ''}</span>
+          <span class="caja-amount ${b.pend < -0.5 ? 'out' : ''}">${fmtMoneyS(b.pend)}${b.pend < -0.5 ? ' (a favor de la barbería)' : ''}</span>
         </div>`).join('') +
-        `<div class="caja-item"><div class="caja-main"><strong>Total pendiente</strong></div><span class="caja-amount">${fmtMoneyS(r.pendiente)}</span></div>`
-      : '<p class="footer-note">Todavía no hay comisiones ni pagos para mostrar.</p>';
+        `<div class="caja-item"><div class="caja-main"><strong>${semana ? 'Pendiente de la semana' : 'Total pendiente'}</strong></div><span class="caja-amount">${fmtMoneyS(totalPend)}</span></div>`
+      : `<p class="footer-note">${semana ? 'No hay comisiones ni adelantos en esa semana.' : 'Todavía no hay comisiones ni pagos para mostrar.'}</p>`;
 
-    // semana a semana
+    // semana a semana: gráfico y tabla
     const weeks = cajaSemanas();
     const shown = cajaShowAllWeeks ? weeks : weeks.slice(0, CAJA_WEEKS_VISIBLE);
-    const currentStart = weekStartStr(todayStr());
+    const currentStart = currentWeekStr();
+    renderCajaChart(shown.slice().reverse());
     cajaSemanasBodyEl.innerHTML = shown.map(w => {
       const sun = new Date(w.start + 'T00:00:00');
       const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
@@ -2921,7 +3100,7 @@
     cajaListEl.innerHTML = movs.length
       ? '<div>' + movs.slice(0, 50).map(m => {
           const t = CAJA_TIPOS[m.tipo];
-          const fuera = r.desde && m.fecha < r.desde;
+          const fuera = rTotal.desde && m.fecha < rTotal.desde;
           const quien = needsBarbero(m.tipo) ? (m.barbero ? ': ' + escapeHtml(m.barbero) : ' (sin barbero)') : '';
           return `<div class="caja-item">
             <div class="caja-main">
@@ -2936,8 +3115,8 @@
       : '<p class="footer-note">Todavía no anotaste movimientos.</p>';
 
     renderJefeSelect();
-    renderCajaBarberoSelect(r);
-    updateCajaBarberoHint(r);
+    renderCajaBarberoSelect(rTotal);
+    updateCajaBarberoHint(rTotal);
     if (!cajaFechaEl.value) cajaFechaEl.value = todayStr();
     if (document.activeElement !== cajaDesdeEl) cajaDesdeEl.value = cloud.cajaDesde || '';
   }
@@ -3016,6 +3195,13 @@
     pushShopUpdate({ cajaDesde: '' });
     renderCaja();
   });
+
+  cajaVistaToggleEl.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => { cajaVista = b.dataset.vista; renderCaja(); });
+  });
+  $c('cajaPrevWeek').addEventListener('click', () => { cajaWeekStr = addDaysStr(cajaWeekStr || currentWeekStr(), -7); renderCaja(); });
+  $c('cajaNextWeek').addEventListener('click', () => { cajaWeekStr = addDaysStr(cajaWeekStr || currentWeekStr(), 7); renderCaja(); });
+  $c('cajaThisWeek').addEventListener('click', () => { cajaWeekStr = currentWeekStr(); renderCaja(); });
 
   function setJefeTab(tab) {
     panelTabEl.classList.toggle('tab-hidden', tab !== 'panel');
